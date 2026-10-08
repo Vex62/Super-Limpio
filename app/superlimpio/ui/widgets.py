@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import queue
 import threading
 import tkinter as tk
@@ -10,6 +11,9 @@ from tkinter import ttk
 from typing import Any, Callable
 
 from . import theme
+
+# Icono y logo generados por tools/crear_exe.py a partir de launcher/logo.png
+ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 
 
 # =========================================================================
@@ -267,6 +271,11 @@ def make_icons(root: tk.Misc, sf: float) -> dict[str, tk.PhotoImage]:
     rect(drive, "#8a95a8", 2, 6, 14, 11)
     rect(drive, theme.ACCENT, 11, 8, 13, 9)
 
+    try:
+        app = tk.PhotoImage(master=root, file=os.path.join(ASSETS_DIR, f"logo-{40 if sf < 1.4 else 60}.png"))
+        return {"folder": folder, "file": file_, "group": group, "drive": drive, "app": app}
+    except tk.TclError:
+        pass  # sin el logo: se dibuja uno sencillo
     app = tk.PhotoImage(master=root, width=32, height=32)
     for y in range(32):
         for x in range(32):

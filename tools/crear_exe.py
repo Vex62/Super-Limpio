@@ -32,6 +32,9 @@ SRC = ROOT / "launcher"
 BUILD = ROOT / "build"
 EXE = ROOT / "SuperLimpio.exe"
 LOGO = SRC / "logo.png"   # PNG cuadrado con transparencia; si falta, se dibuja un icono sencillo
+# Lo que usa la ventana (icono de la barra de título y logo de la barra lateral); va a git
+ASSETS = ROOT / "app" / "superlimpio" / "ui" / "assets"
+SIDEBAR_LOGO_SIZES = (40, 60)
 
 # Funciones de Windows que usa launcher.c (deben coincidir con sus declaraciones)
 IMPORTS = {
@@ -45,7 +48,6 @@ IMPORTS = {
 RT_ICON, RT_GROUP_ICON, RT_VERSION, RT_MANIFEST = 3, 14, 16, 24
 LANG_NEUTRAL, LANG_SPANISH = 0x0000, 0x0C0A
 ICON_SIZES = (16, 20, 24, 32, 40, 48, 64, 256)
-LOGO_MIN_SIZE = 32        # por debajo el logo no se distingue: se usa el icono dibujado
 
 
 # ------------------------------------------------------------------- icono
@@ -180,14 +182,19 @@ def _dib(size: int, rgba: bytes) -> bytes:
 
 
 def _icons() -> list[tuple[int, bytes]]:
+    """Imágenes del icono, y de paso los archivos que usa la ventana en ASSETS."""
     images = []
     side, planes = 0, None
     if LOGO.is_file():
         side, rows = _read_png(LOGO)
         planes = _premultiply(rows)
     for size in ICON_SIZES:
-        rgba = _shrink(planes, side, size) if planes and size >= LOGO_MIN_SIZE else _render_icon(size)
+        rgba = _shrink(planes, side, size) if planes else _render_icon(size)
         images.append((size, _png(size, rgba) if size >= 256 else _dib(size, rgba)))
+    ASSETS.mkdir(exist_ok=True)
+    (ASSETS / "superlimpio.ico").write_bytes(_ico_file(images))
+    for size in SIDEBAR_LOGO_SIZES if planes else ():
+        (ASSETS / f"logo-{size}.png").write_bytes(_png(size, _shrink(planes, side, size)))
     return images
 
 
@@ -260,7 +267,6 @@ def write_resources() -> Path:
     res += _res_entry(RT_GROUP_ICON, 1, _group_icon(images), LANG_NEUTRAL)
     res += _res_entry(RT_VERSION, 1, _version_info(), LANG_SPANISH)
     res += _res_entry(RT_MANIFEST, 1, manifest.encode("utf-8"), LANG_NEUTRAL)
-    (BUILD / "SuperLimpio.ico").write_bytes(_ico_file(images))
     out = BUILD / "recursos.res"
     out.write_bytes(res)
     return out

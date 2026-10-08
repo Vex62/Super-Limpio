@@ -11,7 +11,7 @@ from .. import APP_NAME, __version__, winapi
 from ..safety import Risk, log_action
 from ..util import IS_WINDOWS
 from . import dialogs, theme
-from .widgets import Background, make_icons
+from .widgets import ASSETS_DIR, Background, make_icons
 
 
 class NavItem(tk.Frame):
@@ -65,12 +65,10 @@ class App:
         self.is_admin = winapi.is_admin()
 
         self.root.title(f"{APP_NAME} {__version__}" + ("  —  Administrador" if self.is_admin else ""))
-        self.root.iconphoto(True, self.icons["app"])
-        if not os.path.basename(sys.executable).lower().startswith("python"):
-            try:  # abierta con SuperLimpio.exe: la ventana usa su mismo icono
-                self.root.iconbitmap(default=sys.executable)
-            except tk.TclError:
-                pass
+        try:  # mismo icono que SuperLimpio.exe, en la barra de título y en la de tareas
+            self.root.iconbitmap(default=os.path.join(ASSETS_DIR, "superlimpio.ico"))
+        except tk.TclError:
+            self.root.iconphoto(True, self.icons["app"])
         w, h = int(1280 * self.sf), int(800 * self.sf)
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         w, h = min(w, sw - 40), min(h, sh - 80)

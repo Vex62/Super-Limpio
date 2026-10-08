@@ -10,7 +10,9 @@ Todo es **local**: la app no se conecta a Internet, no instala servicios, no se 
 
 Funciona en Windows 10 y 11 de 64 bits. No se instala nada: todo vive dentro de una carpeta que puedes poner en el disco interno, en uno externo o en un USB.
 
-Primero mira **qué zip tienes**:
+**Para descargarla**, ve a la página [Releases](https://github.com/Vex62/Super-Limpio/releases) del repositorio y baja `SuperLimpio-1.0.0-portable.zip`: es el que lo trae todo.
+
+Si ya tienes un zip, mira **cuál es**:
 
 | Tu zip se llama… | Qué es | Sigue… |
 |---|---|---|
@@ -94,9 +96,9 @@ runtime\python\python.exe -B tools\crear_zip.py --portable
 runtime\python\python.exe -B tools\crear_exe.py
 ```
 
-Deja `SuperLimpio.exe` (unos 190 KB, casi todo es el icono) en la raíz del proyecto. Necesita el compilador de C de Visual Studio o de *Build Tools for Visual Studio* (carga «Desarrollo para el escritorio con C++»); no hace falta el SDK de Windows.
+Deja `SuperLimpio.exe` (unos 170 KB, casi todo es el icono) en la raíz del proyecto. Necesita el compilador de C de Visual Studio o de *Build Tools for Visual Studio* (carga «Desarrollo para el escritorio con C++»); no hace falta el SDK de Windows.
 
-El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launcher.c` que cargan `runtime\python\python312.dll` y le piden que ejecute `app\main.py`, igual que haría `pythonw.exe`. La aplicación sigue siendo el mismo código Python, así que va igual de rápido y consume lo mismo. El icono sale de `launcher\logo.png`. La compilación es reproducible: el mismo código fuente da siempre el mismo `.exe`, byte a byte (el script imprime su SHA-256).
+El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launcher.c` que cargan `runtime\python\python312.dll` y le piden que ejecute `app\main.py`, igual que haría `pythonw.exe`. La aplicación sigue siendo el mismo código Python, así que va igual de rápido y consume lo mismo. El icono sale de `launcher\logo.png` (un PNG cuadrado con fondo transparente): el mismo script lo reduce a todos los tamaños y deja también en `app\superlimpio\ui\assets` el icono y el logo que usa la ventana, para que se vean igual al abrirla con el `.bat`. La compilación es reproducible: el mismo código fuente da siempre el mismo `.exe`, byte a byte (el script imprime su SHA-256).
 
 ## Qué hace cada sección
 
@@ -172,10 +174,11 @@ SuperLimpio/
 │     ├─ fileops.py      Papelera y borrado con comprobaciones
 │     ├─ winapi.py       llamadas a la API de Windows (ctypes)
 │     └─ ui/             interfaz (tkinter, sin dependencias externas)
+│        └─ assets/      icono y logo de la ventana (los genera tools/crear_exe.py)
 ├─ launcher/
 │  ├─ launcher.c            código del lanzador SuperLimpio.exe
 │  ├─ SuperLimpio.manifest  manifiesto de Windows (arranca siempre sin elevar)
-│  └─ logo.png              logo; de aquí sale el icono del .exe
+│  └─ logo.png              logo; de aquí salen el icono del .exe y el de la ventana
 ├─ tests/                tests de la lógica
 ├─ tools/crear_exe.py    compila SuperLimpio.exe
 ├─ tools/crear_zip.py    genera el zip en dist/
