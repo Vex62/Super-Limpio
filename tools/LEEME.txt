@@ -1,0 +1,5 @@
+crear_zip.py   genera el zip de la aplicación en dist\ (ver README.md).
+VSCode\        aquí va VS Code portable si lo descargas con preparar_entorno.bat (opcional).
+
+Para abrir el proyecto:
+  tools\VSCode\Code.exe > Archivo > Abrir área de trabajo desde archivo > SuperLimpio.code-workspace

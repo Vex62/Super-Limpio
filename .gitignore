@@ -1,0 +1,13 @@
+# Código compilado
+__pycache__/
+*.pyc
+
+# Entorno portable (lo crea preparar_entorno.bat)
+runtime/python/
+runtime/_descargas/
+runtime/_pycache/
+tools/VSCode/
+
+# Generado al usar la app o al crear el zip
+logs/
+dist/

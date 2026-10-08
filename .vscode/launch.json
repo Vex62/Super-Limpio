@@ -1,0 +1,16 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Depurar Super Limpio",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/app/main.py",
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/runtime/python/python.exe",
+      "env": { "PYTHONPYCACHEPREFIX": "${workspaceFolder}\\runtime\\_pycache" },
+      "console": "integratedTerminal",
+      "justMyCode": true
+    }
+  ]
+}

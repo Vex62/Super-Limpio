@@ -1,0 +1,5 @@
+Aquí va el Python portable (runtime\python).
+Lo crea preparar_entorno.bat (solo la primera vez).
+
+runtime\_descargas  paquetes descargados; se puede borrar después.
+runtime\_pycache    código ya compilado para arrancar antes; se puede borrar, se regenera solo.

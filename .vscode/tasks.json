@@ -1,0 +1,58 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Ejecutar Super Limpio",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\pythonw.exe",
+      "args": ["${workspaceFolder}\\app\\main.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Ejecutar Super Limpio (con consola, para depurar)",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\python.exe",
+      "args": ["${workspaceFolder}\\app\\main.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Tests",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\python.exe",
+      "args": ["-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "group": "test",
+      "problemMatcher": []
+    },
+    {
+      "label": "Crear zip (solo código)",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\python.exe",
+      "args": ["-B", "${workspaceFolder}\\tools\\crear_zip.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Crear zip (con Python portable incluido)",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\python.exe",
+      "args": ["-B", "${workspaceFolder}\\tools\\crear_zip.py", "--con-python"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Preparar entorno portable",
+      "type": "process",
+      "command": "${workspaceFolder}\\preparar_entorno.bat",
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always", "focus": true },
+      "problemMatcher": []
+    }
+  ]
+}
