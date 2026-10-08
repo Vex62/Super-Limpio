@@ -47,6 +47,24 @@
       "problemMatcher": []
     },
     {
+      "label": "Compilar SuperLimpio.exe",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\python.exe",
+      "args": ["-B", "${workspaceFolder}\\tools\\crear_exe.py"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Crear zip portable (SuperLimpio.exe + Python)",
+      "type": "process",
+      "command": "${workspaceFolder}\\runtime\\python\\python.exe",
+      "args": ["-B", "${workspaceFolder}\\tools\\crear_zip.py", "--portable"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "presentation": { "reveal": "always" },
+      "problemMatcher": []
+    },
+    {
       "label": "Preparar entorno portable",
       "type": "process",
       "command": "${workspaceFolder}\\preparar_entorno.bat",

@@ -89,7 +89,7 @@ class UsageBar(tk.Canvas):
         w, h = self.winfo_width(), self.winfo_height()
         if w <= 1:
             return
-        self.create_rectangle(0, 0, w, h, fill="#e6e9ef", width=0)
+        self.create_rectangle(0, 0, w, h, fill="#e1e9e3", width=0)
         color = theme.ACCENT if self._frac < 0.75 else (theme.WARN if self._frac < 0.9 else theme.DANGER)
         if self._frac > 0:
             self.create_rectangle(0, 0, max(2, int(w * self._frac)), h, fill=color, width=0)

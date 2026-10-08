@@ -8,6 +8,8 @@ runtime/_descargas/
 runtime/_pycache/
 tools/VSCode/
 
-# Generado al usar la app o al crear el zip
+# Generado al usar la app, al compilar el lanzador o al crear el zip
 logs/
 dist/
+build/
+SuperLimpio.exe

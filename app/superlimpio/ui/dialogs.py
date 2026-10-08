@@ -52,7 +52,7 @@ class ConfirmDialog(tk.Toplevel):
             frame.pack(fill="both", expand=True)
             lines = details.count("\n") + 1
             txt = tk.Text(frame, height=min(12, max(3, lines)), wrap="none", font=fonts.mono,
-                          bg="#f7f8fa", fg=theme.TEXT, relief="flat", padx=8, pady=6,
+                          bg="#f5f8f6", fg=theme.TEXT, relief="flat", padx=8, pady=6,
                           width=80)
             sb = ttk.Scrollbar(frame, orient="vertical", command=txt.yview)
             txt.configure(yscrollcommand=sb.set)

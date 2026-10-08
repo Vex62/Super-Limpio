@@ -9,7 +9,7 @@ from pathlib import Path
 
 IS_WINDOWS = sys.platform == "win32"
 
-# Carpeta raíz de la app portable (la que contiene SuperLimpio.bat)
+# Carpeta raíz de la app portable (la que contiene SuperLimpio.exe)
 APP_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR = APP_ROOT / "logs"
 

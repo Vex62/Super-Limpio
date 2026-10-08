@@ -1,39 +1,61 @@
 # Super Limpio
 
-Aplicación de escritorio para **Windows 11** que enseña de un vistazo qué ocupa espacio y memoria en tu equipo, y ayuda a limpiarlo de forma segura. Aspecto inspirado en CCleaner (barra lateral oscura) y en el Explorador de archivos (árbol de carpetas con el **peso total de cada carpeta**).
+<img src="launcher/logo.png" alt="Logo de Super Limpio" width="160">
+
+Aplicación de escritorio para **Windows 11** que enseña de un vistazo qué ocupa espacio y memoria en tu equipo, y ayuda a limpiarlo de forma segura. Aspecto inspirado en CCleaner (barra lateral de navegación) y en el Explorador de archivos (árbol de carpetas con el **peso total de cada carpeta**).
 
 Todo es **local**: la app no se conecta a Internet, no instala servicios, no se queda en segundo plano y no modifica el registro.
 
-## Ponerla en marcha
+## Cómo abrirla, paso a paso
 
-Solo hay dos archivos `.bat`:
+Funciona en Windows 10 y 11 de 64 bits. No se instala nada: todo vive dentro de una carpeta que puedes poner en el disco interno, en uno externo o en un USB.
 
-| Archivo | Cuándo | Qué hace |
+Primero mira **qué zip tienes**:
+
+| Tu zip se llama… | Qué es | Sigue… |
 |---|---|---|
-| `preparar_entorno.bat` | **Una vez** | Trae el Python portable a `runtime\python` (y, si quieres, VS Code portable a `tools\VSCode`) |
-| `SuperLimpio.bat` | **Siempre** | Abre la aplicación |
+| `SuperLimpio-1.0.0-portable.zip` | Todo incluido, listo para usar | [Opción A](#opción-a-zip-portable-lo-más-fácil) |
+| `Super-Limpio-main.zip` (botón verde **Code › Download ZIP** de GitHub) o `SuperLimpio-1.0.0.zip` | Solo el código: le falta Python | [Opción B](#opción-b-zip-de-código-el-que-se-baja-de-github) |
+| `SuperLimpio-1.0.0-con-python.zip` | Código + Python | Opción B, saltándote el paso 3 |
 
-### 1. Crear el entorno (una sola vez)
+### Opción A: zip portable (lo más fácil)
 
-1. Copia la carpeta del proyecto al disco externo, por ejemplo `E:\SuperLimpio`.
-   Si la bajaste como zip de Internet: clic derecho en el zip › **Propiedades** › marca **Desbloquear** › Aceptar, y después descomprime. Así Windows no pregunta en cada arranque.
-2. Doble clic en **`preparar_entorno.bat`**. Pregunta antes de cada paso (`S`/`N`):
-   - **Python 3.12.10** — descarga 4 paquetes oficiales de python.org (14 MB), comprueba su **firma digital** y los *extrae* en `runtime\python` (45 MB). No se instala nada en Windows: ni registro, ni PATH, ni entrada en «Aplicaciones», ni permisos de administrador. No interfiere con otro Python que ya tengas.
-   - **VS Code portable** (opcional, 150 MB) — solo hace falta si vas a modificar el código.
-3. Listo. La carpeta `runtime\_descargas` ya se puede borrar.
+1. **Desbloquea el zip.** Clic derecho sobre el zip › **Propiedades** › abajo del todo marca **Desbloquear** › **Aceptar**. (Si no aparece esa casilla, no hace falta.) Así Windows no pone pegas al abrir la app.
+2. **Descomprímelo entero.** Clic derecho sobre el zip › **Extraer todo…** › elige dónde › **Extraer**. No abras el `.exe` desde dentro del zip: no funcionaría.
+3. **Entra en la carpeta `SuperLimpio`** que ha aparecido. Dentro verás `SuperLimpio.exe` y las carpetas `app` y `runtime`.
+4. **Doble clic en `SuperLimpio.exe`.** Se abre la ventana. La primera vez tarda unos segundos (el antivirus revisa los archivos nuevos); después abre en torno a un segundo.
 
-A partir de aquí todo vive en el disco externo y funciona en cualquier PC con Windows 10/11 de 64 bits, sin volver a descargar nada.
+No saques `SuperLimpio.exe` de su carpeta: necesita `app` y `runtime` a su lado. Para tenerlo a mano, clic derecho sobre el `.exe` › **Mostrar más opciones** › **Enviar a** › **Escritorio (crear acceso directo)**. La carpeta entera sí se puede mover o copiar a otro PC tal cual.
 
-> Si ya recibiste el zip `SuperLimpio-x.y.z-con-python.zip`, sáltate este apartado: el Python portable va dentro.
+### Opción B: zip de código (el que se baja de GitHub)
 
-### 2. Usarla
+1. **Desbloquea el zip.** Clic derecho sobre el zip › **Propiedades** › marca **Desbloquear** › **Aceptar**.
+2. **Descomprímelo entero.** Clic derecho › **Extraer todo…** y entra en la carpeta que aparece (`Super-Limpio-main` o `SuperLimpio`).
+3. **Doble clic en `preparar_entorno.bat`** (solo esta vez; necesita Internet). Pregunta antes de cada paso y se contesta con `S` o `N`:
+   - **Python 3.12.10** — contesta `S`. Descarga 4 paquetes oficiales de python.org (14 MB), comprueba su **firma digital** y los *extrae* en `runtime\python` (45 MB). No se instala nada en Windows: ni registro, ni PATH, ni entrada en «Aplicaciones», ni permisos de administrador. No interfiere con otro Python que ya tengas.
+   - **VS Code portable** (150 MB) — contesta `N`, salvo que vayas a modificar el código.
+4. **Doble clic en `SuperLimpio.bat`.** Se abre la ventana y la consola negra se cierra sola. A partir de ahora solo necesitas este paso.
 
-Doble clic en **`SuperLimpio.bat`**. Aparece la ventana en un par de segundos y la consola se cierra sola.
+En este zip no viene `SuperLimpio.exe`, porque los programas compilados no se guardan en el repositorio. No hace falta: el `.bat` abre exactamente la misma aplicación. Si quieres el `.exe`, mira [Compilar `SuperLimpio.exe`](#compilar-superlimpioexe).
 
-- La app arranca como **usuario normal**. Para limpiar carpetas del sistema o ver procesos de otros usuarios, pulsa *Reiniciar como administrador…* (abajo a la izquierda): Windows mostrará su aviso UAC.
-- Si Windows muestra «Windows protegió su PC» la primera vez, es SmartScreen avisando de un `.bat` bajado de Internet: *Más información* › *Ejecutar de todas formas* (o desbloquea el zip como se indica arriba).
+### Si algo no sale como esperas
 
-### 3. Trabajar en el código con VS Code portable
+| Qué ves | Por qué | Qué hacer |
+|---|---|---|
+| Ventana azul «Windows protegió su PC» | SmartScreen avisa de cualquier programa nuevo bajado de Internet que no esté firmado | **Más información** › **Ejecutar de todas formas**. No vuelve a salir si desbloqueaste el zip (paso 1) |
+| «Falta la carpeta app» o «Falta el Python portable» | Has abierto el `.exe` desde dentro del zip, o lo has movido fuera de su carpeta | Descomprime el zip entero y abre el `.exe` desde la carpeta `SuperLimpio` |
+| «No se ha encontrado el Python portable» al abrir `SuperLimpio.bat` | Falta el paso 3 de la opción B | Ejecuta `preparar_entorno.bat` y contesta `S` a Python |
+| «Error de descarga» en `preparar_entorno.bat` | No hay conexión a Internet | Conéctate y vuelve a ejecutarlo, o pide el zip portable |
+
+### Una vez abierta
+
+- La app arranca como **usuario normal** y con eso basta para casi todo. Para limpiar carpetas del sistema o ver procesos de otros usuarios, pulsa *Reiniciar como administrador…* (abajo a la izquierda): Windows mostrará su aviso de permisos (UAC).
+- Nada se borra sin que lo confirmes antes: cada acción enseña exactamente qué va a tocar.
+- Para quitar Super Limpio del equipo, borra su carpeta. No deja nada más.
+
+## Para quien modifica el código
+
+### Trabajar con VS Code portable
 
 1. Abre `tools\VSCode\Code.exe` (o el VS Code portable que ya tengas en el disco).
 2. *Archivo › Abrir área de trabajo desde archivo…* › `SuperLimpio.code-workspace`.
@@ -46,6 +68,7 @@ El área de trabajo ya apunta al Python portable. Dentro de VS Code:
 | Depurar | **F5** (necesita la extensión de Python) |
 | Tests | *Terminal › Ejecutar tarea… › Tests* |
 | Generar el zip | *Terminal › Ejecutar tarea… › Crear zip* |
+| Compilar el `.exe` | *Terminal › Ejecutar tarea… › Compilar SuperLimpio.exe* |
 
 Sin VS Code, desde una consola en la carpeta del proyecto:
 
@@ -53,14 +76,27 @@ Sin VS Code, desde una consola en la carpeta del proyecto:
 runtime\python\python.exe -B -m unittest discover -s tests -v
 runtime\python\python.exe -B tools\crear_zip.py
 runtime\python\python.exe -B tools\crear_zip.py --con-python
+runtime\python\python.exe -B tools\crear_exe.py
+runtime\python\python.exe -B tools\crear_zip.py --portable
 ```
 
-### 4. Generar el zip para llevarlo a otro sitio
+### Generar los zips
 
 | Comando | Resultado | Para qué |
 |---|---|---|
+| `tools\crear_zip.py --portable` | `dist\SuperLimpio-1.0.0-portable.zip` (~21 MB) | **Descomprimir y doble clic en `SuperLimpio.exe`**, sin Internet. Lleva el `.exe`, la app, el Python portable y el código ya compilado. Necesita haber ejecutado antes `tools\crear_exe.py` |
 | `tools\crear_zip.py` | `dist\SuperLimpio-1.0.0.zip` (~100 KB, solo texto) | Compartir o guardar el código. Quien lo reciba ejecuta `preparar_entorno.bat` |
-| `tools\crear_zip.py --con-python` | `dist\SuperLimpio-1.0.0-con-python.zip` (~17 MB) | Descomprimir y usar, sin Internet |
+| `tools\crear_zip.py --con-python` | `dist\SuperLimpio-1.0.0-con-python.zip` (~17 MB) | Código + Python portable, para seguir desarrollando sin Internet |
+
+### Compilar `SuperLimpio.exe`
+
+```bat
+runtime\python\python.exe -B tools\crear_exe.py
+```
+
+Deja `SuperLimpio.exe` (unos 190 KB, casi todo es el icono) en la raíz del proyecto. Necesita el compilador de C de Visual Studio o de *Build Tools for Visual Studio* (carga «Desarrollo para el escritorio con C++»); no hace falta el SDK de Windows.
+
+El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launcher.c` que cargan `runtime\python\python312.dll` y le piden que ejecute `app\main.py`, igual que haría `pythonw.exe`. La aplicación sigue siendo el mismo código Python, así que va igual de rápido y consume lo mismo. El icono sale de `launcher\logo.png`. La compilación es reproducible: el mismo código fuente da siempre el mismo `.exe`, byte a byte (el script imprime su SHA-256).
 
 ## Qué hace cada sección
 
@@ -91,20 +127,25 @@ runtime\python\python.exe -B tools\crear_zip.py --con-python
 
 Los falsos positivos suelen venir de ejecutables empaquetados (PyInstaller, etc.), código ofuscado o comportamientos típicos de malware. Este proyecto los evita a propósito:
 
-- **No hay ningún `.exe` propio.** Se ejecuta código fuente legible (`.py`) con `pythonw.exe` **firmado** por la Python Software Foundation. Es lo que Windows muestra en el aviso UAC.
+- **`SuperLimpio.exe` no es un empaquetado.** No lleva Python ni la app comprimidos dentro, no extrae nada a carpetas temporales y no usa UPX ni nada parecido, que es justo lo que hace saltar a los antivirus con PyInstaller y similares. Solo carga la DLL oficial de Python, **firmada** por la Python Software Foundation, que está a la vista en `runtime\python`. Importa 13 funciones de Windows, lleva icono, información de versión y manifiesto como cualquier programa normal, y su código fuente está en `launcher\launcher.c`.
+- La aplicación sigue siendo código fuente legible (`.py`) en la carpeta `app`. Quien prefiera no usar el `.exe` puede abrirla con `SuperLimpio.bat`, que usa `pythonw.exe`.
 - Sin ofuscación, sin Base64, sin PowerShell codificado, sin `-ExecutionPolicy Bypass`, sin ventanas ocultas.
 - Sin persistencia (no crea tareas programadas, servicios ni entradas de inicio) y sin escribir en el registro.
 - Sin red en tiempo de ejecución. Las únicas descargas están en `preparar_entorno.bat`, se piden con permiso, vienen de python.org / Microsoft y se **verifica su firma digital** antes de usarlas. No se ejecuta ningún instalador: los paquetes solo se extraen.
 - Para medir procesos pide a Windows **el permiso mínimo** (`PROCESS_QUERY_LIMITED_INFORMATION`). Nunca solicita acceso a la memoria de otros procesos, que es justo lo que los antivirus vigilan (por ejemplo sobre `lsass.exe`).
-- El zip solo lleva texto y, opcionalmente, los binarios oficiales de Python sin tocar.
+- El zip solo lleva texto, los binarios oficiales de Python sin tocar y, en el portable, el lanzador y los `.pyc` (el mismo código de `app` y de la biblioteca de Python ya compilado por el propio Python).
+
+Comprobado con Microsoft Defender (protección en tiempo real activa): ni `SuperLimpio.exe`, ni el zip portable, ni la carpeta descomprimida dan ninguna detección.
+
+Lo que no se puede prometer es que **ningún** antivirus del mercado lo marque nunca: `SuperLimpio.exe` **no está firmado digitalmente**, porque eso requiere un certificado de firma de código de pago a nombre de una persona o empresa. Sin firma, SmartScreen avisa la primera vez si el zip viene de Internet, y algún motor que desconfía de todo ejecutable nuevo y sin firmar podría dar un aviso genérico. Si llegas a distribuirlo mucho, firmarlo es lo único que quita ese aviso de raíz.
 
 Lo que **sí** puede preguntar Windows, y es lo esperado:
 
 | Aviso | Cuándo | Qué hacer |
 |---|---|---|
-| SmartScreen «Windows protegió su PC» | Primer arranque de un `.bat` venido de Internet | *Más información › Ejecutar de todas formas*, o desbloquear el zip antes de descomprimir |
-| UAC «¿Quieres permitir que esta aplicación haga cambios?» | Al reiniciar como administrador o lanzar DISM/powercfg | Comprueba que el editor es *Python Software Foundation* o *Microsoft Windows* |
-| «Acceso controlado a carpetas» de Defender | Si lo tienes activado y borras dentro de Documentos, Imágenes… | Permitir `pythonw.exe` en *Seguridad de Windows › Protección contra ransomware* |
+| SmartScreen «Windows protegió su PC» | Primer arranque de un `.exe` o `.bat` venido de Internet | *Más información › Ejecutar de todas formas*, o desbloquear el zip antes de descomprimir |
+| UAC «¿Quieres permitir que esta aplicación haga cambios?» | Al reiniciar como administrador o lanzar DISM/powercfg | Con `SuperLimpio.exe` el aviso es amarillo y dice *Editor desconocido* (no está firmado): comprueba que la ruta es la de tu carpeta. Con `SuperLimpio.bat` el editor es *Python Software Foundation*; en DISM/powercfg, *Microsoft Windows* |
+| «Acceso controlado a carpetas» de Defender | Si lo tienes activado y borras dentro de Documentos, Imágenes… | Permitir `SuperLimpio.exe` (o `pythonw.exe` si usas el `.bat`) en *Seguridad de Windows › Protección contra ransomware* |
 
 Si algún antivirus marcase un archivo, no lo excluyas a ciegas: súbelo a [VirusTotal](https://www.virustotal.com) y revisa qué motor lo detecta. Todo el código es texto legible.
 
@@ -112,9 +153,11 @@ Si algún antivirus marcase un archivo, no lo excluyas a ciegas: súbelo a [Viru
 
 ```
 SuperLimpio/
-├─ SuperLimpio.bat              abre la aplicación
+├─ SuperLimpio.exe              abre la aplicación (lo genera tools/crear_exe.py; no va a git)
+├─ SuperLimpio.bat              abre la aplicación con pythonw.exe, sin el .exe
 ├─ preparar_entorno.bat         descarga verificada de Python / VS Code portables
 ├─ SuperLimpio.code-workspace   + .vscode/ (intérprete portable, tareas, depuración)
+├─ paleta.txt                   colores de la marca; la interfaz los toma de app/superlimpio/ui/theme.py
 ├─ app/
 │  ├─ main.py
 │  └─ superlimpio/
@@ -129,7 +172,12 @@ SuperLimpio/
 │     ├─ fileops.py      Papelera y borrado con comprobaciones
 │     ├─ winapi.py       llamadas a la API de Windows (ctypes)
 │     └─ ui/             interfaz (tkinter, sin dependencias externas)
+├─ launcher/
+│  ├─ launcher.c            código del lanzador SuperLimpio.exe
+│  ├─ SuperLimpio.manifest  manifiesto de Windows (arranca siempre sin elevar)
+│  └─ logo.png              logo; de aquí sale el icono del .exe
 ├─ tests/                tests de la lógica
+├─ tools/crear_exe.py    compila SuperLimpio.exe
 ├─ tools/crear_zip.py    genera el zip en dist/
 ├─ runtime/              Python portable y caché de código compilado (no van a git)
 └─ tools/VSCode/         VS Code portable, opcional (no va a git)
@@ -137,7 +185,7 @@ SuperLimpio/
 
 Solo usa la biblioteca estándar de Python: no hay que instalar paquetes con pip.
 
-`runtime\_pycache` guarda el código ya compilado para que la ventana abra antes; se puede borrar cuando quieras y se regenera sola. `logs\` guarda el registro de acciones.
+`runtime\_pycache` guarda el código ya compilado para que la ventana abra antes cuando se usa `SuperLimpio.bat`; se puede borrar cuando quieras y se regenera sola. Con `SuperLimpio.exe` el código compilado va en las carpetas `__pycache__` de siempre, junto a cada archivo: el zip portable ya las trae hechas y siguen valiendo aunque muevas la carpeta. `build\` guarda los archivos intermedios de compilar el `.exe`. `logs\` guarda el registro de acciones.
 
 ## Limitaciones conocidas
 

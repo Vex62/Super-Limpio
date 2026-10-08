@@ -1,3 +1,4 @@
+crear_exe.py   compila SuperLimpio.exe, el lanzador de launcher\launcher.c (ver README.md).
 crear_zip.py   genera el zip de la aplicación en dist\ (ver README.md).
 VSCode\        aquí va VS Code portable si lo descargas con preparar_entorno.bat (opcional).
 

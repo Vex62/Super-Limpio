@@ -46,7 +46,7 @@ class ToolsView(View):
                        command=lambda t=tool: self.run(t)).pack(side="right")
             tk.Label(card.inner, text=tool.description, font=self.fonts.base, bg=theme.CARD, fg=theme.MUTED,
                      anchor="w", justify="left", wraplength=self.px(820)).pack(fill="x", pady=(self.px(4), 0))
-            tk.Label(card.inner, text=f"> {tool.command_line}", font=self.fonts.mono, bg="#f7f8fa",
+            tk.Label(card.inner, text=f"> {tool.command_line}", font=self.fonts.mono, bg="#f5f8f6",
                      fg=theme.TEXT, anchor="w", padx=6, pady=3).pack(fill="x", pady=(self.px(6), 0))
 
     def run(self, tool: SysTool) -> None:

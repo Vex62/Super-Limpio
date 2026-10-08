@@ -1,0 +1,35 @@
+Verde bosque
+
+#087C2A
+
+Color principal oscuro, contornos y profundidad.
+
+Verde esmeralda
+
+#12A832
+
+Fondo principal del emblema y superficies verdes.
+
+Verde lima
+
+#42D21C
+
+Reflejos, bordes dinámicos y acentos luminosos.
+
+Blanco puro
+
+#FFFFFF
+
+Letras, brillos, espuma y contraste.
+
+Azul agua
+
+#65D9FF
+
+Chorros de agua y detalles de limpieza.
+
+Verde petróleo
+
+#004D35
+
+Sombras, contornos gruesos y volumen del texto.

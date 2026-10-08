@@ -48,7 +48,7 @@ class NavItem(tk.Frame):
     def set_active(self, on: bool) -> None:
         self.active = on
         if on:
-            self._paint(theme.SIDEBAR_ACTIVE, theme.SIDEBAR_FG_ACTIVE, theme.ACCENT)
+            self._paint(theme.SIDEBAR_ACTIVE, theme.SIDEBAR_FG_ACTIVE, theme.HIGHLIGHT)
         else:
             self._paint(theme.SIDEBAR_BG, theme.SIDEBAR_FG, theme.SIDEBAR_BG)
 
@@ -66,6 +66,11 @@ class App:
 
         self.root.title(f"{APP_NAME} {__version__}" + ("  —  Administrador" if self.is_admin else ""))
         self.root.iconphoto(True, self.icons["app"])
+        if not os.path.basename(sys.executable).lower().startswith("python"):
+            try:  # abierta con SuperLimpio.exe: la ventana usa su mismo icono
+                self.root.iconbitmap(default=sys.executable)
+            except tk.TclError:
+                pass
         w, h = int(1280 * self.sf), int(800 * self.sf)
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         w, h = min(w, sw - 40), min(h, sh - 80)
@@ -91,7 +96,7 @@ class App:
         txt.pack(side="left", padx=int(10 * sf))
         tk.Label(txt, text="Super Limpio", font=self.fonts.brand, fg="#ffffff",
                  bg=theme.SIDEBAR_BG).pack(anchor="w")
-        tk.Label(txt, text=f"v{__version__} · local y sin red", font=self.fonts.small, fg="#7f8aa3",
+        tk.Label(txt, text=f"v{__version__} · local y sin red", font=self.fonts.small, fg=theme.SIDEBAR_MUTED,
                  bg=theme.SIDEBAR_BG).pack(anchor="w")
 
         self.nav_frame = tk.Frame(self.sidebar, bg=theme.SIDEBAR_BG)
@@ -99,13 +104,13 @@ class App:
 
         bottom = tk.Frame(self.sidebar, bg=theme.SIDEBAR_BG)
         bottom.pack(side="bottom", fill="x", padx=int(16 * sf), pady=int(16 * sf))
-        color = theme.WARN if self.is_admin else theme.ACCENT
+        color = theme.WARN if self.is_admin else theme.HIGHLIGHT
         state = "Administrador" if self.is_admin else "Usuario estándar"
         tk.Label(bottom, text=f"{self.fonts.glyph('shield')}  {state}", font=self.fonts.small,
                  fg=color, bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x")
         if not self.is_admin and IS_WINDOWS:
             lnk = tk.Label(bottom, text="Reiniciar como administrador…", font=self.fonts.small,
-                           fg="#8fb4ff", bg=theme.SIDEBAR_BG, cursor="hand2", anchor="w")
+                           fg=theme.AGUA, bg=theme.SIDEBAR_BG, cursor="hand2", anchor="w")
             lnk.pack(fill="x", pady=(4, 0))
             lnk.bind("<Button-1>", lambda e: self.relaunch_admin())
 
@@ -119,13 +124,13 @@ class App:
         self.h_sub = ttk.Label(header, text="", style="Muted.TLabel")
         self.h_sub.pack(anchor="w")
 
-        status = tk.Frame(self.main, bg="#e9ecf1", height=int(26 * sf))
+        status = tk.Frame(self.main, bg="#e6eee8", height=int(26 * sf))
         status.pack(fill="x", side="bottom")
         self.status_var = tk.StringVar(value="Listo")
-        tk.Label(status, textvariable=self.status_var, bg="#e9ecf1", fg=theme.MUTED,
+        tk.Label(status, textvariable=self.status_var, bg="#e6eee8", fg=theme.MUTED,
                  font=self.fonts.small, anchor="w").pack(side="left", padx=int(12 * sf), pady=int(3 * sf))
         tk.Label(status, text="Todas las acciones piden confirmación · registro en logs\\acciones.log",
-                 bg="#e9ecf1", fg=theme.MUTED, font=self.fonts.small).pack(side="right", padx=int(12 * sf))
+                 bg="#e6eee8", fg=theme.MUTED, font=self.fonts.small).pack(side="right", padx=int(12 * sf))
 
         self.content = ttk.Frame(self.main)
         self.content.pack(fill="both", expand=True, padx=int(26 * sf), pady=(0, int(8 * sf)))
@@ -195,7 +200,7 @@ class App:
             "Windows mostrará su aviso de Control de cuentas de usuario (UAC).\n\n"
             "Solo es necesario para limpiar carpetas del sistema, finalizar procesos de otros usuarios "
             "o ejecutar DISM/powercfg.",
-            details='"{}" {}'.format(*winapi.admin_command(script)), risk=Risk.ALTO, ok_text="Reiniciar elevado")
+            details='"{}" {}'.format(*winapi.admin_command(script)).strip(), risk=Risk.ALTO, ok_text="Reiniciar elevado")
         if not ok:
             return
         done, msg = winapi.relaunch_as_admin(script)

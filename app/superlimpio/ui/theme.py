@@ -8,33 +8,44 @@ from tkinter import ttk
 
 from ..safety import Risk
 
-# Paleta
-SIDEBAR_BG = "#18202e"
-SIDEBAR_HOVER = "#222c3e"
-SIDEBAR_ACTIVE = "#2a3650"
-SIDEBAR_FG = "#b9c3d6"
-SIDEBAR_FG_ACTIVE = "#ffffff"
-ACCENT = "#2fb36b"          # verde «limpieza»
-ACCENT_DARK = "#24965a"
-ACCENT_SOFT = "#e5f6ec"
-BG = "#f3f4f7"
-CARD = "#ffffff"
-BORDER = "#dde1e8"
-TEXT = "#1d2433"
-MUTED = "#6a7387"
-INFO = "#2f6fdb"
-WARN = "#e3962b"
+# Paleta de la marca (paleta.txt, los colores del logo)
+BOSQUE = "#087C2A"          # color principal oscuro, contornos y profundidad
+ESMERALDA = "#12A832"       # fondo principal del emblema y superficies verdes
+LIMA = "#42D21C"            # reflejos y acentos luminosos
+BLANCO = "#FFFFFF"          # letras, brillos y contraste
+AGUA = "#65D9FF"            # chorros de agua y detalles de limpieza
+PETROLEO = "#004D35"        # sombras y contornos gruesos
+
+# Uso en la interfaz. Los tonos intermedios son mezclas de los seis de arriba.
+SIDEBAR_BG = PETROLEO
+SIDEBAR_HOVER = "#02593a"
+SIDEBAR_ACTIVE = BOSQUE
+SIDEBAR_FG = "#cfe8dc"
+SIDEBAR_FG_ACTIVE = BLANCO
+SIDEBAR_MUTED = "#8fc4ac"
+ACCENT = ESMERALDA
+ACCENT_DARK = BOSQUE
+ACCENT_SOFT = "#e3f6e7"
+HIGHLIGHT = LIMA            # marcador de la sección activa y avisos sobre fondo oscuro
+BG = "#f2f6f3"
+CARD = BLANCO
+BORDER = "#d9e3dc"
+TEXT = "#0d2b20"
+MUTED = "#5f7268"
+INFO = "#0e8fbf"            # azul agua oscurecido: sobre él se lee el texto blanco
+INFO_DARK = "#0b759d"
+WARN = "#e3962b"            # naranja y rojo no son de la marca: avisan de riesgo
 DANGER = "#d64545"
 DANGER_DARK = "#b83636"
-SELECT = "#cce4f7"          # azul de selección del Explorador
+SELECT = "#cdf2ff"          # fila seleccionada, azul agua claro
 
 ROW_HUGE = "#fde3e3"        # >= 10 GB
 ROW_BIG = "#fff0da"         # >= 1 GB
 ROW_MID = "#fffaeb"         # >= 100 MB
 
 RISK_COLORS = {
-    Risk.BAJO: ("#2fb36b", "#e5f6ec"),
-    Risk.MEDIO: ("#2f6fdb", "#e6eefc"),
+    Risk.BAJO: (ACCENT_DARK, ACCENT_SOFT),
+    Risk.MEDIO: (INFO, "#e2f6fd"),
     Risk.ALTO: ("#e3962b", "#fdf1df"),
     Risk.CRITICO: ("#d64545", "#fbe5e5"),
 }
@@ -103,10 +114,10 @@ def apply_style(root: tk.Tk, fonts: Fonts, sf: float) -> ttk.Style:
     pad = (int(12 * sf), int(6 * sf))
     style.configure("TButton", padding=pad, background="#ffffff", bordercolor=BORDER,
                     lightcolor="#ffffff", darkcolor="#ffffff", relief="flat")
-    style.map("TButton", background=[("pressed", "#e4e8ef"), ("active", "#eef1f6"), ("disabled", "#f3f4f6")],
+    style.map("TButton", background=[("pressed", "#e0eae3"), ("active", "#edf4ef"), ("disabled", "#f3f6f4")],
               foreground=[("disabled", "#a0a7b5")])
     for name, bg, dark in (("Accent", ACCENT, ACCENT_DARK), ("Danger", DANGER, DANGER_DARK),
-                           ("Info", INFO, "#2559b5")):
+                           ("Info", INFO, INFO_DARK)):
         style.configure(f"{name}.TButton", background=bg, foreground="#ffffff", bordercolor=bg,
                         lightcolor=bg, darkcolor=bg, font=fonts.bold)
         style.map(f"{name}.TButton",
@@ -116,7 +127,7 @@ def apply_style(root: tk.Tk, fonts: Fonts, sf: float) -> ttk.Style:
 
     style.configure("TEntry", fieldbackground="#ffffff", padding=int(5 * sf), bordercolor=BORDER,
                     lightcolor="#ffffff")
-    style.map("TEntry", bordercolor=[("focus", INFO)], lightcolor=[("focus", INFO)])
+    style.map("TEntry", bordercolor=[("focus", AGUA)], lightcolor=[("focus", AGUA)])
     style.configure("TCombobox", fieldbackground="#ffffff", padding=int(4 * sf), arrowsize=int(12 * sf))
 
     rowh = int(26 * sf)
@@ -126,7 +137,7 @@ def apply_style(root: tk.Tk, fonts: Fonts, sf: float) -> ttk.Style:
     style.configure("Treeview.Heading", background="#ffffff", foreground=MUTED, relief="flat",
                     font=fonts.small, padding=(int(6 * sf), int(5 * sf)), bordercolor=BORDER,
                     lightcolor="#ffffff", darkcolor=BORDER)
-    style.map("Treeview.Heading", background=[("active", "#eef3fb")])
+    style.map("Treeview.Heading", background=[("active", ACCENT_SOFT)])
     style.layout("Treeview", [("Treeview.treearea", {"sticky": "nswe"})])
 
     style.configure("TNotebook", background=BG, borderwidth=0, tabmargins=(0, 0, 0, 0))
@@ -135,12 +146,12 @@ def apply_style(root: tk.Tk, fonts: Fonts, sf: float) -> ttk.Style:
     style.map("TNotebook.Tab", background=[("selected", "#ffffff")], foreground=[("selected", TEXT)],
               expand=[("selected", (0, 0, 0, 0))])
 
-    style.configure("Horizontal.TProgressbar", troughcolor="#e6e9ef", background=ACCENT,
-                    bordercolor="#e6e9ef", lightcolor=ACCENT, darkcolor=ACCENT,
+    style.configure("Horizontal.TProgressbar", troughcolor="#e1e9e3", background=ACCENT,
+                    bordercolor="#e1e9e3", lightcolor=ACCENT, darkcolor=ACCENT,
                     thickness=int(6 * sf))
-    style.configure("Vertical.TScrollbar", background="#e9ecf1", troughcolor="#ffffff",
+    style.configure("Vertical.TScrollbar", background="#e6eee8", troughcolor="#ffffff",
                     bordercolor="#ffffff", arrowcolor=MUTED, gripcount=0, arrowsize=int(12 * sf))
-    style.configure("Horizontal.TScrollbar", background="#e9ecf1", troughcolor="#ffffff",
+    style.configure("Horizontal.TScrollbar", background="#e6eee8", troughcolor="#ffffff",
                     bordercolor="#ffffff", arrowcolor=MUTED, gripcount=0, arrowsize=int(12 * sf))
     style.configure("TLabelframe", background=CARD, bordercolor=BORDER)
     style.configure("TLabelframe.Label", background=CARD, foreground=MUTED, font=fonts.bold)

@@ -127,6 +127,22 @@ class UninstallParsingTests(unittest.TestCase):
         self.assertEqual(build_uninstall_plan(p2).params, "/x {11111111-2222-3333-4444-555555555555}")
 
 
+class ElevationTests(unittest.TestCase):
+    def test_launcher_needs_no_script(self):
+        from unittest import mock
+        from superlimpio import winapi
+        with mock.patch.object(sys, "executable", r"E:\SuperLimpio\SuperLimpio.exe"):
+            self.assertEqual(winapi.admin_command(r"E:\SuperLimpio\app\main.py"),
+                             (r"E:\SuperLimpio\SuperLimpio.exe", ""))
+
+    def test_python_gets_the_script(self):
+        from unittest import mock
+        from superlimpio import winapi
+        with mock.patch.object(sys, "executable", r"E:\nada\pythonw.exe"):
+            self.assertEqual(winapi.admin_command(r"E:\app\main.py"),
+                             (r"E:\nada\pythonw.exe", r'"E:\app\main.py"'))
+
+
 class DevDepsTests(unittest.TestCase):
     def test_finds_node_modules_and_requires_markers(self):
         with tempfile.TemporaryDirectory() as r:

@@ -1,6 +1,6 @@
 """Punto de entrada de Super Limpio.
 
-Ejecutar:  runtime\\python\\pythonw.exe app\\main.py   (o SuperLimpio.bat)
+Ejecutar:  SuperLimpio.exe   (o SuperLimpio.bat, o runtime\\python\\pythonw.exe app\\main.py)
 """
 
 import os
@@ -8,10 +8,12 @@ import sys
 import traceback
 
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-# El código compilado (.pyc) se guarda en UNA sola carpeta, runtime\_pycache, en vez de
-# repartirse por el proyecto. Así la ventana abre en torno a 1 s antes a partir de la
-# segunda vez. Se puede borrar cuando se quiera: se regenera sola.
-if not sys.pycache_prefix:
+# Con python/pythonw el código compilado (.pyc) se guarda en UNA sola carpeta,
+# runtime\_pycache, en vez de repartirse por el proyecto. Así la ventana abre en torno
+# a 1 s antes a partir de la segunda vez. Se puede borrar cuando se quiera: se regenera sola.
+# Con SuperLimpio.exe se usan los __pycache__ normales, junto a cada archivo: el zip
+# portable ya los trae hechos y siguen valiendo aunque la carpeta se mueva de sitio.
+if not sys.pycache_prefix and os.path.basename(sys.executable).lower().startswith("python"):
     sys.pycache_prefix = os.path.join(os.path.dirname(_APP_DIR), "runtime", "_pycache")
 sys.path.insert(0, _APP_DIR)
 
