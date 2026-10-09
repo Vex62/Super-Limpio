@@ -1,0 +1,65 @@
+# Verifica Super Limpio en Linux: pruebas de la lógica, llamadas reales al sistema y un
+# recorrido por la interfaz bajo un servidor gráfico virtual. Deja como artefactos las
+# capturas de pantalla del recorrido.
+name: Linux
+
+on:
+  push:
+    branches: [main, multiplataforma]
+  workflow_dispatch:
+
+jobs:
+  pruebas:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-tk xvfb wmctrl imagemagick openbox fonts-dejavu-core
+
+      - name: Versiones
+        run: |
+          python3 --version
+          python3 -c "import tkinter; print('Tk', tkinter.TkVersion)"
+
+      - name: Pruebas
+        run: python3 -B -m unittest discover -s tests -v
+
+      - name: El lanzador arranca y sabe instalarse en el menú
+        run: |
+          chmod +x superlimpio.sh
+          XDG_DATA_HOME="$RUNNER_TEMP/datos" ./superlimpio.sh --instalar
+          cat "$RUNNER_TEMP/datos/applications/superlimpio.desktop"
+          XDG_DATA_HOME="$RUNNER_TEMP/datos" ./superlimpio.sh --quitar
+
+      - name: Recorrido por la interfaz
+        run: |
+          xvfb-run -a -s "-screen 0 1440x900x24" sh -c '
+            openbox >/dev/null 2>&1 &
+            sleep 1
+            python3 -B tests/smoke_gui.py capturas
+          '
+
+      - name: Paquete de Linux (sin firma, solo para comprobar que se construye y arranca)
+        run: |
+          python3 -B tools/crear_linux.py --sin-firma
+          mkdir prueba && tar -xzf dist/SuperLimpio-*-linux.tar.gz -C prueba
+          ls -l prueba/SuperLimpio
+          test -x prueba/SuperLimpio/superlimpio.sh
+          cd prueba/SuperLimpio
+          timeout 20 xvfb-run -a ./superlimpio.sh || test $? -eq 124
+
+      - name: Capturas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capturas-${{ matrix.os }}
+          path: capturas
+          if-no-files-found: ignore
