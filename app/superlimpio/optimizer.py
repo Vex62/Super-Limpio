@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 
 from . import i18n, winapi
+from .criticality import SECURITY_PATHS, SECURITY_PROCESSES, Level, assess_process
 from .safety import PROTECTED_PROCESSES, SENSITIVE_PROCESSES, Risk, check_process_kill, log_action
 from .util import fmt_count, fmt_size
 
@@ -39,16 +40,9 @@ GB = 1024 ** 3
 # =========================================================================
 
 # Nunca se ofrecen: seguridad y anti-trampas (cerrarlos desprotege el equipo o
-# provoca expulsiones en juegos en línea).
-_UNTOUCHABLE = {
-    "securityhealthsystray.exe", "smartscreen.exe", "mbam.exe", "mbamservice.exe", "mbamtray.exe",
-    "avp.exe", "avpui.exe", "avgsvc.exe", "avgui.exe", "avastsvc.exe", "avastui.exe", "ekrn.exe",
-    "egui.exe", "bdagent.exe", "bdservicehost.exe", "vsserv.exe", "mcshield.exe", "mcuicnt.exe",
-    "nortonsecurity.exe", "sophosui.exe", "savservice.exe", "wrsa.exe", "psanhost.exe",
-    "easyanticheat.exe", "easyanticheat_eos.exe", "beservice.exe", "beservice_x64.exe", "vgc.exe",
-    "vgtray.exe", "faceit.exe", "faceitclient.exe",
-}
-_UNTOUCHABLE_PATHS = ("\\windows defender", "\\microsoft defender")
+# provoca expulsiones en juegos en línea). La lista vive en `criticality`.
+_UNTOUCHABLE = SECURITY_PROCESSES
+_UNTOUCHABLE_PATHS = SECURITY_PATHS
 
 _CATALOG: dict[str, tuple[str, ...]] = {
     "updater": (
@@ -649,6 +643,10 @@ class ProgramUsage:
     has_window: bool = False
     accessible: bool = True
     members: list = field(default_factory=list)   # RawProcess de la última muestra
+    level: int = 0            # importancia para el sistema (criticality.Level)
+    what: str = ""            # qué es
+    risk: str = ""            # qué pasa si se cierra
+    own: bool = False         # es la propia aplicación
 
 
 @dataclass
@@ -693,10 +691,15 @@ def _pct(x: float) -> str:
     return i18n.percent(f"{x:.0f}")
 
 
+def _system_advice(u: ProgramUsage, key: str) -> str:
+    """Consejo para un programa que es parte de Windows: qué es, el riesgo y qué hacer."""
+    return f"{u.what} {u.risk} {i18n.t(key)}"
+
+
 def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids: set[int] | None = None,
             ncpu: int | None = None, startup_enabled: int | None = None,
             reclaim: tuple[int, int] | None = None, is_admin: bool = False,
-            self_pid: int | None = None) -> Report:
+            self_pid: int | None = None, windir: str | None = None) -> Report:
     """Convierte las muestras en un diagnóstico: quién consume, quién crece y qué hacer."""
     window_pids = window_pids or set()
     ncpu = ncpu or os.cpu_count() or 1
@@ -758,6 +761,22 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
     findings: list[Finding] = []
     t = i18n.t
 
+    # Importancia de cada programa para el sistema: manda el proceso más delicado del grupo.
+    by_pid = {p.pid: p for p in last}
+    for u in programs:
+        found = []
+        for m in u.members:
+            parent = _valid_parent(m, by_pid)
+            found.append(assess_process(m.name, m.path, m.pid, m.accessible,
+                                        service=parent is not None and parent.name.lower() == "services.exe",
+                                        windir=windir, self_pid=self_pid))
+        top = max(found, key=lambda a: a.level)
+        u.level, u.what, u.risk = int(top.level), top.what, top.risk
+        u.own = u.key == own_key
+        if u.own:
+            mine = next(a for a in found if a.kind == "self")
+            u.what, u.risk = mine.what, mine.risk
+
     if mem and mem.total:
         load = mem.used / mem.total
         args = dict(pct=_pct(load * 100), used=fmt_size(mem.used), total=fmt_size(mem.total),
@@ -785,10 +804,14 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
     hog_floor = max(1.5 * GB, 0.20 * total_ram)
     for u in [u for u in programs if u.private >= hog_floor][:3]:
         share = _pct(u.private / total_ram * 100) if total_ram else "—"
+        if u.level >= Level.IMPORTANT:   # de Windows: cerrarlo no es una opción
+            advice = _system_advice(u, "opt.find.hog_system_advice")
+        elif category_of(u.name) == "browser":
+            advice = t("opt.find.hog_browser_advice")
+        else:
+            advice = t("opt.find.hog_advice")
         findings.append(Finding(2, t("opt.find.hog", name=u.name, size=fmt_size(u.private), pct=share),
-                                i18n.plural(u.count, "opt.find.procs"),
-                                t("opt.find.hog_browser_advice") if category_of(u.name) == "browser"
-                                else t("opt.find.hog_advice"), "memory"))
+                                i18n.plural(u.count, "opt.find.procs"), advice, "memory"))
 
     for u in programs:
         if u.key == own_key:
@@ -797,11 +820,13 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
             findings.append(Finding(2, t("opt.find.growth", name=u.name, size=fmt_size(u.growth),
                                          s=f"{seconds:.0f}"),
                                     t("opt.find.growth_detail", size=fmt_size(u.private)),
-                                    t("opt.find.growth_advice"), "memory"))
+                                    _system_advice(u, "opt.find.growth_system_advice")
+                                    if u.level >= Level.IMPORTANT else t("opt.find.growth_advice"), "memory"))
         if not u.has_window and u.cpu_avg >= 5.0:
             findings.append(Finding(2, t("opt.find.bg_cpu", name=u.name, pct=_pct(u.cpu_avg)),
                                     t("opt.find.bg_cpu_detail", peak=_pct(u.cpu_peak)),
-                                    t("opt.find.bg_cpu_advice"), "efficient"))
+                                    *((_system_advice(u, "opt.find.bg_cpu_system_advice"), "memory")
+                                      if u.level >= Level.IMPORTANT else (t("opt.find.bg_cpu_advice"), "efficient"))))
         if u.handles >= 20000:
             findings.append(Finding(1, t("opt.find.handles", name=u.name, n=fmt_count(u.handles)),
                                     "", t("opt.find.handles_advice"), "memory"))
@@ -813,6 +838,16 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
     if startup_enabled is not None and startup_enabled >= 8:
         findings.append(Finding(1, t("opt.find.startup", n=startup_enabled), "",
                                 t("opt.find.startup_advice"), "startup"))
+
+    # Cuánta memoria es del propio Windows: no se libera cerrando nada, y conviene saberlo.
+    system = [u for u in programs if u.level >= Level.IMPORTANT and u.accessible]
+    system_private = sum(u.private for u in system)
+    if system and total_ram and system_private >= 0.05 * total_ram:
+        findings.append(Finding(0, t("opt.find.system_share", size=fmt_size(system_private),
+                                     pct=_pct(system_private / total_ram * 100)),
+                                t("opt.find.system_share_detail", n=len(system),
+                                  vital=sum(1 for u in system if u.level >= Level.VITAL)),
+                                t("opt.find.system_share_advice")))
 
     blind = sum(1 for p in last if p.pid != 0 and not p.accessible)
     if blind and not is_admin:

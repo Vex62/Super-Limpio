@@ -12,7 +12,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from ... import fileops, i18n, scanner, winapi
+from ... import criticality, fileops, i18n, scanner, winapi
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_pct, fmt_size, text_bar
 from .. import compress_dialog, dialogs, theme
@@ -20,6 +20,7 @@ from ..widgets import ScrollTree, SortableTable
 from .base import View
 
 DUMMY = "__dummy__"
+WARN_MARK = "\u26a0"   # señal de aviso delante de lo que es del sistema
 PAGE = 400   # filas que se añaden de una vez al desplegar una carpeta
 
 
@@ -60,17 +61,22 @@ class DiskView(View):
 
         prog = ttk.Frame(self)
         prog.pack(fill="x", pady=(0, self.px(8)))
-        self.pbar = ttk.Progressbar(prog, mode="indeterminate", length=self.px(160))
+        self.pbar = ttk.Progressbar(prog, mode="determinate", length=self.px(160))
         self.pbar.pack(side="left")
-        self.prog_lbl = ttk.Label(prog, text=i18n.t("disk.prompt"), style="Muted.TLabel")
-        self.prog_lbl.pack(side="left", padx=self.px(10), fill="x", expand=True)
+        # La leyenda se coloca antes que el texto de avance: si falta ancho, se recorta el texto.
         legend = tk.Frame(prog, bg=theme.BG)
         legend.pack(side="right")
+        self.prog_lbl = ttk.Label(prog, text=i18n.t("disk.prompt"), style="Muted.TLabel")
+        self.prog_lbl.pack(side="left", padx=self.px(10), fill="x", expand=True)
         for color, txt in ((theme.ROW_MID, i18n.t("disk.legend.mid")), (theme.ROW_BIG, i18n.t("disk.legend.big")),
                            (theme.ROW_HUGE, i18n.t("disk.legend.huge"))):
             tk.Label(legend, text="   ", bg=color, highlightthickness=1,
                      highlightbackground=theme.BORDER).pack(side="left", padx=(self.px(8), 3))
             tk.Label(legend, text=txt, bg=theme.BG, fg=theme.MUTED, font=self.fonts.small).pack(side="left")
+        # Solo se destaca lo que es del propio sistema y cuyo borrado daña a Windows.
+        for level, key in ((3, "disk.legend.vital"), (2, "disk.legend.important")):
+            tk.Label(legend, text=f"{WARN_MARK} {i18n.t(key)}", bg=theme.BG, fg=theme.LEVEL_COLORS[level],
+                     font=self.fonts.small).pack(side="left", padx=(self.px(12), 0))
 
         # ---- panel divisible: tablas arriba, detalles abajo (ambos redimensionables)
         split = ttk.PanedWindow(self, orient="vertical")
@@ -80,7 +86,8 @@ class DiskView(View):
 
         cols = [("size", i18n.t("disk.col.size"), 95, "e"), ("bar", i18n.t("disk.col.usage"), 120, "w"),
                 ("pct", "%", 60, "e"), ("files", i18n.t("disk.col.files"), 85, "e"),
-                ("mtime", i18n.t("disk.col.modified"), 125, "w"), ("hint", i18n.t("disk.col.what"), 300, "w")]
+                ("mtime", i18n.t("disk.col.modified"), 125, "w"), ("level", i18n.t("memory.col.level"), 110, "w"),
+                ("hint", i18n.t("disk.col.what"), 300, "w")]
         self.tree_box = ScrollTree(self.nb, cols, show_tree=True, sf=self.sf,
                                    tree_heading=i18n.t("disk.col.name"), tree_width=340)
         self.tree = self.tree_box.tree
@@ -92,16 +99,20 @@ class DiskView(View):
         self.tree.bind("<Delete>", lambda e: self._recycle())
 
         fcols = [("name", i18n.t("disk.col.file"), 260, "w"), ("size", i18n.t("disk.col.size"), 95, "e"),
+                 ("level", i18n.t("memory.col.level"), 110, "w"),
                  ("type", i18n.t("disk.col.type"), 150, "w"), ("mtime", i18n.t("disk.col.modified"), 125, "w"),
                  ("folder", i18n.t("disk.col.folder"), 420, "w")]
         self.files_box = ScrollTree(self.nb, fcols, sf=self.sf)
         self.files_tbl = SortableTable(
             self.files_box.tree,
-            render=lambda r: (r["name"], fmt_size(r["size"]), r["type"], fmt_date(r["mtime"]), r["folder"]),
+            render=lambda r: (r["name"], fmt_size(r["size"]), r["mark"][0], r["type"] or r["mark"][2],
+                              fmt_date(r["mtime"]), r["folder"]),
             sort_keys={"name": lambda r: r["name"].lower(), "size": lambda r: r["size"],
+                       "level": lambda r: (r["mark"][1], r["size"]),
                        "mtime": lambda r: r["mtime"], "folder": lambda r: r["folder"].lower(),
                        "type": lambda r: r["type"]},
-            default_sort="size", tag_fn=lambda r: (theme.size_tag(r["size"]),), key_fn=lambda r: r["path"])
+            default_sort="size", tag_fn=lambda r: (theme.size_tag(r["size"]), r["mark"][1]),
+            key_fn=lambda r: r["path"])
         self.nb.add(self.files_box, text=i18n.t("disk.tab.files"))
         self.files_box.tree.bind("<Button-3>", self._context_menu)
         self.files_box.tree.bind("<<TreeviewSelect>>", self._on_select)
@@ -130,6 +141,11 @@ class DiskView(View):
         self.sel_info = tk.Label(inner, text="", font=self.fonts.small, bg=theme.CARD, fg=theme.MUTED,
                                  anchor="w")
         self.sel_info.pack(side="left", padx=self.px(10), fill="x", expand=True)
+        # Qué es lo seleccionado para el sistema y qué riesgo tiene borrarlo.
+        self.sel_risk = tk.Label(det, text="", font=self.fonts.small, bg=theme.CARD, fg=theme.MUTED,
+                                 anchor="w", justify="left", wraplength=self.px(900))
+        self.sel_risk.pack(fill="x", padx=self.px(12), pady=(0, self.px(6)))
+        self.sel_risk.bind("<Configure>", lambda e: self.sel_risk.configure(wraplength=max(200, e.width - 4)))
         # Los botones van en su propia fila: así caben todos aunque la ventana sea estrecha.
         actions = tk.Frame(det, bg=theme.CARD)
         actions.pack(fill="x", padx=self.px(12), pady=(0, self.px(8)))
@@ -148,6 +164,8 @@ class DiskView(View):
 
         split.add(self.nb, weight=1)
         split.add(det, weight=0)
+        # Al cambiar de pestaña, el panel de abajo pasa a hablar de la tabla que se ve.
+        self.nb.bind("<<NotebookTabChanged>>", self._on_select)
 
         self.menu = tk.Menu(self, tearoff=False)
         self.menu.add_command(label=i18n.t("common.open_explorer"), command=self._open)
@@ -176,34 +194,54 @@ class DiskView(View):
         self.cancel_ev = threading.Event()
         self.scan_btn.state(["disabled"])
         self.cancel_btn.state(["!disabled"])
+        self.pbar.configure(mode="indeterminate")
         self.pbar.start(12)
         self.prog_lbl.configure(text=i18n.t("disk.analyzing", path=path))
         self.status(i18n.t("disk.analyzing_status", path=path))
         ev = self.cancel_ev
 
+        def progress_ui(kw: dict) -> None:
+            if ev is self.cancel_ev:   # el avance de un análisis ya sustituido no se enseña
+                self.prog_lbl.configure(**kw)
+
         def progress(p: scanner.ScanProgress):
             txt = i18n.t("disk.scan_progress", files=fmt_count(p.files), dirs=fmt_count(p.dirs),
                          bytes=fmt_size(p.bytes), secs=f"{p.elapsed:.0f}", current=p.current[-90:])
-            self.app.bg.call_in_ui(self.prog_lbl.configure, {"text": txt})
+            self.app.bg.call_in_ui(progress_ui, {"text": txt})
 
         self.app.bg.run(lambda: scanner.scan(path, progress, ev),
-                        on_done=self._scan_done, on_error=self._scan_failed)
+                        on_done=lambda res: self._scan_done(res, ev),
+                        on_error=lambda exc: self._scan_failed(exc, ev))
+
+    def pending(self) -> str:
+        return i18n.t("app.pending.delete") if self._deleting else ""
 
     def _cancel(self) -> None:
         if self.cancel_ev:
             self.cancel_ev.set()
             self.prog_lbl.configure(text=i18n.t("disk.stopping"))
 
-    def _scan_failed(self, exc: BaseException) -> None:
+    def _scan_failed(self, exc: BaseException, ev: threading.Event) -> None:
+        if ev is not self.cancel_ev:
+            return
+        self.cancel_ev = None
         self._end_progress()
         dialogs.error(self, i18n.t("disk.scan_error"), str(exc))
 
     def _end_progress(self) -> None:
-        self.pbar.stop()
+        self._idle_bar()
         self.scan_btn.state(["!disabled"])
         self.cancel_btn.state(["disabled"])
 
-    def _scan_done(self, res: scanner.ScanResult) -> None:
+    def _idle_bar(self) -> None:
+        """En reposo la barra queda vacía (una barra indeterminada parada deja un bloque fijo)."""
+        self.pbar.stop()
+        self.pbar.configure(mode="determinate", value=0)
+
+    def _scan_done(self, res: scanner.ScanResult, ev: threading.Event) -> None:
+        if ev is not self.cancel_ev:
+            return   # se lanzó otro análisis encima: este resultado, a medias, ya no interesa
+        self.cancel_ev = None
         self._end_progress()
         self.result = res
         extra = []
@@ -238,18 +276,21 @@ class DiskView(View):
         self.tree.focus(iid)
 
     def _dir_values(self, node: scanner.DirNode, parent_size: int) -> tuple:
-        hint = scanner.hint_for(node.name, True)
+        label, _tag, what = _system_mark(node.path)
+        hint = scanner.hint_for(node.name, True) or what
         if node.errors and not hint:
             hint = i18n.t("disk.subdirs_unreadable")
         if node.cloud_size and not hint:
             hint = i18n.t("disk.cloud_extra", size=fmt_size(node.cloud_size))
         return (fmt_size(node.size), text_bar(node.size, parent_size), fmt_pct(node.size, parent_size),
-                fmt_count(node.files), fmt_date(node.mtime), hint)
+                fmt_count(node.files), fmt_date(node.mtime), label, hint)
+
+    def _dir_tags(self, node: scanner.DirNode) -> tuple:
+        return theme.size_tag(node.size), "bar", _system_mark(node.path)[1]
 
     def _insert_dir(self, parent: str, node: scanner.DirNode, parent_size: int, index="end") -> str:
         iid = self.tree.insert(parent, index, text=f" {node.name}", image=self.app.icons["folder"],
-                               values=self._dir_values(node, parent_size),
-                               tags=(theme.size_tag(node.size), "bar"))
+                               values=self._dir_values(node, parent_size), tags=self._dir_tags(node))
         self.items[iid] = ("dir", node)
         self.node_iid[id(node)] = iid
         if node.children or node.top_files or node.small_files_count:
@@ -275,11 +316,12 @@ class DiskView(View):
                 self._insert_dir(iid, obj, node.size)
             elif obj in node.top_files:  # puede haberse borrado desde «Archivos más grandes»
                 fsize, fname, fmtime = obj
+                label, tag, what = _system_mark(os.path.join(node.path, fname))
                 fid = self.tree.insert(iid, "end", text=f" {fname}", image=self.app.icons["file"],
                                        values=(fmt_size(fsize), text_bar(fsize, node.size),
-                                               fmt_pct(fsize, node.size), "", fmt_date(fmtime),
-                                               scanner.hint_for(fname, False)),
-                                       tags=(theme.size_tag(fsize), "bar"))
+                                               fmt_pct(fsize, node.size), "", fmt_date(fmtime), label,
+                                               scanner.hint_for(fname, False) or what),
+                                       tags=(theme.size_tag(fsize), "bar", tag))
                 self.items[fid] = ("file", node, obj)
         rest = entries[PAGE:]
         if rest:
@@ -287,7 +329,7 @@ class DiskView(View):
             mid = self.tree.insert(iid, "end", text=i18n.t("disk.show_more", n=fmt_count(len(rest))),
                                    image=self.app.icons["group"],
                                    values=(fmt_size(left), text_bar(left, node.size), fmt_pct(left, node.size),
-                                           "", "", i18n.t("disk.show_more_hint")),
+                                           "", "", "", i18n.t("disk.show_more_hint")),
                                    tags=("muted", "bar"))
             self.items[mid] = ("more", node, rest)
             return
@@ -297,7 +339,8 @@ class DiskView(View):
                                    values=(fmt_size(node.small_files_size),
                                            text_bar(node.small_files_size, node.size),
                                            fmt_pct(node.small_files_size, node.size),
-                                           fmt_count(node.small_files_count), "", i18n.t("disk.small_files_hint")),
+                                           fmt_count(node.small_files_count), "", "",
+                                           i18n.t("disk.small_files_hint")),
                                    tags=("muted", "bar"))
             self.items[rid] = ("rest", node)
 
@@ -318,7 +361,7 @@ class DiskView(View):
             name = os.path.basename(path)
             ext = os.path.splitext(name)[1].lower()
             rows.append({"name": name, "size": size, "mtime": mtime, "folder": os.path.dirname(path),
-                         "path": path, "type": scanner.file_type_label(ext)})
+                         "path": path, "type": scanner.file_type_label(ext), "mark": _system_mark(path)})
         self.files_tbl.set_rows(rows)
 
     def _fill_types(self) -> None:
@@ -329,13 +372,18 @@ class DiskView(View):
         self.types_tbl.set_rows(rows[:400])
 
     # ========================================================== selección
-    def _active_tree(self) -> ttk.Treeview:
-        return self.files_box.tree if self.nb.index(self.nb.select()) == 1 else self.tree
+    def _active_tree(self) -> ttk.Treeview | None:
+        """La tabla que se está viendo. «Por tipo» es solo informativa: ahí no hay nada que
+        abrir ni borrar, y lo marcado en otra pestaña no debe poder borrarse desde ella."""
+        tab = self.nb.index(self.nb.select())
+        return self.tree if tab == 0 else (self.files_box.tree if tab == 1 else None)
 
     def _selected(self) -> list[dict]:
         """Elementos seleccionados como {path, size, is_dir, ref}."""
         out = []
         tree = self._active_tree()
+        if tree is None:
+            return out
         if tree is self.tree:
             for iid in tree.selection():
                 it = self.items.get(iid)
@@ -364,6 +412,7 @@ class DiskView(View):
             self._load_more(picked[0])
             return
         sel = self._selected()
+        self._show_risk(sel)
         if not sel:
             self.sel_name.configure(text=i18n.t("common.nothing_selected"))
             self.sel_info.configure(text="")
@@ -379,6 +428,35 @@ class DiskView(View):
             self.sel_name.configure(text=i18n.t("disk.sel_multi", n=len(sel), size=fmt_size(total)))
             self.sel_info.configure(text="")
         self._set_actions(True, single_dir=len(sel) == 1 and sel[0]["is_dir"])
+
+    def _show_risk(self, sel: list[dict]) -> None:
+        """Explica qué es lo seleccionado para el sistema y qué pasa si se borra."""
+        if not sel:
+            self.sel_risk.configure(text="", fg=theme.MUTED)
+            return
+        found = [criticality.assess_path(s["path"]) for s in sel[:200]]
+        a = criticality.worst(found)
+        text = i18n.t("disk.risk_line", level=a.label, text=a.text)
+        if len(sel) > 1:
+            delicate = sum(1 for f in found if f.level >= criticality.Level.CAUTION)
+            if delicate:
+                text = i18n.t("disk.risk_multi", n=delicate, total=len(sel)) + text
+        if a.system:   # el color y el aviso, solo para lo que daña al sistema
+            text = f"{WARN_MARK} {text}"
+        self.sel_risk.configure(text=text, fg=theme.LEVEL_COLORS[int(a.level)] if a.system else theme.MUTED)
+
+    def _delicate(self, sel: list[dict]) -> tuple[str, str]:
+        """(aviso para el mensaje, líneas para el detalle) de lo seleccionado que no es un
+        archivo corriente: datos de programas, perfiles de otros usuarios..."""
+        lines = []
+        for s in sel[:200]:
+            a = criticality.assess_path(s["path"])
+            if a.level >= criticality.Level.CAUTION:
+                lines.append(f"[{a.label}] {s['path']}\n      {a.text}")
+        if not lines:
+            return "", ""
+        return i18n.t("disk.delicate_warning", n=len(lines)), i18n.t("disk.delicate_details",
+                                                                      items="\n".join(lines[:12]))
 
     def _set_actions(self, on: bool, single_dir: bool = False) -> None:
         enabled = on and not self._deleting
@@ -455,11 +533,12 @@ class DiskView(View):
         if not sel or self._check_blocked(sel):
             return
         total = sum(s["size"] for s in sel)
+        warn, extra = self._delicate(sel)
         if not dialogs.confirm(
                 self, i18n.t("disk.recycle.title"),
-                i18n.t("disk.recycle.body", n=len(sel), size=fmt_size(total)),
-                dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]),
-                risk=Risk.MEDIO, ok_text=i18n.t("common.recycle").rstrip("…")):
+                i18n.t("disk.recycle.body", n=len(sel), size=fmt_size(total)) + warn,
+                dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]) + extra,
+                risk=Risk.ALTO if warn else Risk.MEDIO, ok_text=i18n.t("common.recycle").rstrip("…")):
             return
         self._do_delete(sel, fileops.recycle)
 
@@ -470,10 +549,11 @@ class DiskView(View):
         if not sel or self._check_blocked(sel):
             return
         total = sum(s["size"] for s in sel)
+        warn, extra = self._delicate(sel)
         if not dialogs.confirm(
                 self, i18n.t("disk.delete.title"),
-                i18n.t("disk.delete.body", n=len(sel), size=fmt_size(total)),
-                dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]),
+                i18n.t("disk.delete.body", n=len(sel), size=fmt_size(total)) + warn,
+                dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]) + extra,
                 risk=Risk.CRITICO, ok_text=i18n.t("disk.delete.ok")):
             return
         self._do_delete(sel, fileops.delete_permanently)
@@ -487,12 +567,14 @@ class DiskView(View):
         self.prog_lbl.configure(text=i18n.t("common.deleting"))
         self.status(i18n.t("common.deleting"))
         self.app.bg.run(lambda: fn([s["path"] for s in sel]),
-                        on_done=lambda r: self._after_delete(sel, r))
+                        on_done=lambda r: self._after_delete(sel, r),
+                        on_error=lambda e: self._after_delete(sel, (False, str(e))))
 
     def _after_delete(self, sel: list[dict], res: tuple[bool, str]) -> None:
         ok, msg = res
         # Actualiza la pantalla cuanto antes para reflejar lo que ya no está.
-        self.pbar.stop()
+        if self.cancel_ev is None:   # si hay un análisis en marcha, la barra sigue siendo suya
+            self._idle_bar()
         self._deleting = False
         removed = [s for s in sel if not os.path.exists(s["path"])]
         for s in removed:
@@ -544,7 +626,7 @@ class DiskView(View):
                 piid = self.node_iid.get(id(p))
                 if piid and self.tree.exists(piid):
                     pp = p.parent.size if p.parent else p.size
-                    self.tree.item(piid, values=self._dir_values(p, pp), tags=(theme.size_tag(p.size), "bar"))
+                    self.tree.item(piid, values=self._dir_values(p, pp), tags=self._dir_tags(p))
                 p = p.parent
         elif self.result and not s["is_dir"]:
             # Archivo aún no cargado en el árbol: solo actualizar totales
@@ -560,12 +642,15 @@ class DiskView(View):
                     piid = self.node_iid.get(id(p))
                     if piid and self.tree.exists(piid):
                         pp = p.parent.size if p.parent else p.size
-                        self.tree.item(piid, values=self._dir_values(p, pp))
+                        self.tree.item(piid, values=self._dir_values(p, pp), tags=self._dir_tags(p))
                     p = p.parent
 
     def _find_node(self, path: str) -> scanner.DirNode | None:
         root = self.result.root
-        rel = os.path.relpath(path, root.path)
+        try:
+            rel = os.path.relpath(path, root.path)
+        except ValueError:   # otra unidad
+            return None
         if rel.startswith(".."):
             return None
         node = root
@@ -576,3 +661,15 @@ class DiskView(View):
             if node is None:
                 return None
         return node
+
+
+def _system_mark(path: str) -> tuple[str, str, str]:
+    """(etiqueta, etiqueta de color, qué es) de una ruta para las tablas.
+
+    La etiqueta y el color solo se dan a lo que es del propio sistema y cuyo borrado daña a
+    Windows; lo demás (programas instalados, datos de programas, archivos personales) no se
+    destaca, aunque «qué es» sí lo describa cuando merece cuidado."""
+    a = criticality.assess_path(path, strict=False)
+    if a.system and a.level >= criticality.Level.IMPORTANT:
+        return f"{WARN_MARK} {a.label}", f"lvl{int(a.level)}", a.what
+    return "", "", a.what if a.level >= criticality.Level.CAUTION else ""

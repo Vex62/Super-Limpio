@@ -36,6 +36,20 @@ class View(ttk.Frame):
     def on_hide(self) -> None:
         pass
 
+    def pending(self) -> str:
+        """Texto de la operación que no conviene cortar (un borrado, una limpieza...) si hay
+        una en marcha; cadena vacía si la vista se puede cerrar o reconstruir sin más."""
+        return ""
+
+    def shutdown(self) -> None:
+        """La vista se va a destruir (cierre, cambio de idioma o de tamaño): se cancelan los
+        análisis en segundo plano para que no sigan trabajando para nadie."""
+        self.on_hide()
+        for name in ("cancel_ev", "_an_stop"):
+            ev = getattr(self, name, None)
+            if ev is not None:
+                ev.set()
+
     # Utilidades
     def px(self, n: int | float) -> int:
         return int(n * self.sf)
@@ -49,8 +63,11 @@ class View(ttk.Frame):
         self.app.set_status(text)
 
     def note(self, parent, text: str) -> tk.Label:
-        return tk.Label(parent, text=text, bg=theme.BG, fg=theme.MUTED, font=self.fonts.small,
-                        anchor="w", justify="left", wraplength=self.px(900))
+        lbl = tk.Label(parent, text=text, bg=theme.BG, fg=theme.MUTED, font=self.fonts.small,
+                       anchor="w", justify="left", wraplength=self.px(900))
+        # El texto se ajusta al ancho real: en ventanas estrechas no se corta por la derecha.
+        lbl.bind("<Configure>", lambda e: lbl.configure(wraplength=max(self.px(200), e.width - 4)))
+        return lbl
 
     def persist_sash(self, pw: ttk.PanedWindow, name: str, default_px: int) -> None:
         """Recuerda y restaura la posición de un divisor arrastrable de esta vista."""

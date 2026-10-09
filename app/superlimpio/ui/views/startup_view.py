@@ -48,7 +48,8 @@ class StartupView(View):
         self.load()
 
     def load(self) -> None:
-        self.app.bg.run(startup.list_startup, on_done=self._loaded)
+        self.app.bg.run(startup.list_startup, on_done=self._loaded,
+                        on_error=lambda e: self.status(f"{i18n.t('common.error')}: {e}"))
 
     def _loaded(self, items) -> None:
         self.table.set_rows(items)

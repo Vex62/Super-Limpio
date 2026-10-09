@@ -9,7 +9,7 @@ from ... import i18n
 from ...safety import Risk
 from ...systools import SysTool, run_tool, tools
 from .. import dialogs, theme
-from ..widgets import Card, badge, risk_badge
+from ..widgets import Card, badge, bind_wheel, risk_badge
 from .base import View
 
 
@@ -30,9 +30,7 @@ class ToolsView(View):
         canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        canvas.bind("<Enter>", lambda e: canvas.bind_all(
-            "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-ev.delta / 120), "units")))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(canvas)
 
         for tool in tools():
             card = Card(holder, self.sf, padding=12)

@@ -714,5 +714,161 @@ class ArchiverTests(unittest.TestCase):
         self.assertEqual(os.path.basename(self.a.default_dest([single], "zip")), "uno.zip")
 
 
+class I18nTests(unittest.TestCase):
+    def test_placeholders_may_be_called_like_the_parameters(self):
+        # «programs.detail» lleva un marcador {key}: no puede chocar con el parámetro de t()
+        text = i18n.t("programs.detail", cmd="unins.exe /S", key=r"HKLM\Software\X")
+        self.assertIn("unins.exe /S", text)
+        self.assertIn(r"HKLM\Software\X", text)
+        self.assertEqual(i18n.t("no.such.key {key} {n}", key="a", n=2), "no.such.key a 2")
+        self.assertIn("3", i18n.plural(3, "items"))
+
+    def test_catalog_is_complete_in_both_languages(self):
+        import re
+        for key, entry in i18n.CATALOG.items():
+            self.assertEqual(set(entry), {"en", "es"}, key)
+            marks = [sorted(re.findall(r"\{(\w+)\}", entry[lang])) for lang in ("en", "es")]
+            self.assertEqual(marks[0], marks[1], key)
+
+
+class WindowGeometryTests(unittest.TestCase):
+    AREA = (0, 0, 1920, 1040)
+
+    def setUp(self):
+        from superlimpio.ui import winframe
+        self.w = winframe
+
+    def test_fit_keeps_the_rectangle_inside(self):
+        self.assertEqual(self.w.fit_rect(100, 100, 800, 600, self.AREA), (100, 100, 800, 600))
+        self.assertEqual(self.w.fit_rect(1500, 900, 800, 600, self.AREA), (1120, 440, 800, 600))
+        self.assertEqual(self.w.fit_rect(-50, -20, 800, 600, self.AREA), (0, 0, 800, 600))
+        # más grande que la pantalla: se encoge
+        self.assertEqual(self.w.fit_rect(10, 10, 3000, 2000, self.AREA), (0, 0, 1920, 1040))
+        # monitor a la izquierda del principal (coordenadas negativas)
+        self.assertEqual(self.w.fit_rect(0, 0, 800, 600, (-1280, 0, 0, 1024)), (-800, 0, 800, 600))
+
+    def test_window_dragged_away_comes_back_within_reach(self):
+        keep = self.w.keep_reachable
+        self.assertEqual(keep(300, 200, 800, 600, self.AREA), (300, 200))       # dentro: no se toca
+        self.assertEqual(keep(-400, 200, 800, 600, self.AREA), (-400, 200))     # a medias fuera: tampoco
+        self.assertEqual(keep(-790, 200, 800, 600, self.AREA), (-680, 200))     # casi nada a la vista
+        self.assertEqual(keep(1910, 200, 800, 600, self.AREA), (1800, 200))
+        self.assertEqual(keep(300, -300, 800, 600, self.AREA), (300, 0))        # la barra de título, arriba
+        self.assertEqual(keep(300, 1035, 800, 600, self.AREA), (300, 1000))     # ...o escondida abajo
+
+    def test_resolution_change_keeps_proportions(self):
+        old, new = (0, 0, 1920, 1080), (0, 0, 1280, 720)
+        self.assertEqual(self.w.rescale_rect(480, 270, 960, 540, old, new), (320, 180, 640, 360))
+        # con un mínimo, el tamaño no baja de ahí y la ventana sigue entera en pantalla
+        x, y, w, h = self.w.rescale_rect(1200, 600, 700, 450, old, new, min_size=(760, 520))
+        self.assertEqual((w, h), (760, 520))
+        self.assertTrue(0 <= x and x + w <= 1280 and 0 <= y and y + h <= 720)
+        # y al volver a la resolución grande recupera su proporción
+        self.assertEqual(self.w.rescale_rect(320, 180, 640, 360, new, old), (480, 270, 960, 540))
+
+
+class CriticalityTests(unittest.TestCase):
+    WIN = r"C:\Windows"
+    ENV = {"sysdrive": "C:", "windir": r"C:\Windows", "programdata": r"C:\ProgramData",
+           "program_files": [r"C:\Program Files", r"C:\Program Files (x86)"], "users": r"C:\Users",
+           "profile": r"C:\Users\ana", "app_root": r"D:\Apps\SuperLimpio"}
+
+    def setUp(self):
+        from superlimpio import criticality
+        self.c = criticality
+
+    def proc(self, name, path="", **kw):
+        kw.setdefault("self_pid", 999999)
+        return self.c.assess_process(name, path, windir=self.WIN, **kw)
+
+    def test_processes_are_ranked_by_what_breaks(self):
+        L = self.c.Level
+        self.assertEqual(self.proc("csrss.exe", r"C:\Windows\System32\csrss.exe").level, L.VITAL)
+        self.assertEqual(self.proc("System", pid=4).level, L.VITAL)
+        self.assertEqual(self.proc("svchost.exe", r"C:\Windows\System32\svchost.exe", service=True).level, L.VITAL)
+        self.assertEqual(self.proc("MsMpEng.exe", accessible=False).level, L.IMPORTANT)
+        self.assertEqual(self.proc("vgc.exe", r"C:\Program Files\Riot Vanguard\vgc.exe").level, L.IMPORTANT)
+        self.assertEqual(self.proc("explorer.exe", r"C:\Windows\explorer.exe").level, L.CAUTION)
+        self.assertEqual(self.proc("mystery.exe", r"C:\Windows\System32\mystery.exe").level, L.IMPORTANT)
+        self.assertEqual(self.proc("notepad.exe", r"C:\Windows\System32\notepad.exe").level, L.NORMAL)
+        self.assertEqual(self.proc("UpdSvc.exe", r"C:\Program Files\Acme\UpdSvc.exe", service=True).level, L.CAUTION)
+        self.assertEqual(self.proc("chrome.exe", r"C:\Program Files\Google\chrome.exe").level, L.NORMAL)
+        for name in self.c.PROTECTED_PROCESSES:      # nada de lo que safety bloquea sale como inocuo
+            self.assertGreaterEqual(self.proc(name).level, L.IMPORTANT, name)
+        for name in self.c.SENSITIVE_PROCESSES:
+            self.assertGreaterEqual(self.proc(name).level, L.CAUTION, name)
+
+    def test_own_process_is_recognised(self):
+        a = self.c.assess_process("SuperLimpio.exe", r"D:\Apps\SuperLimpio\SuperLimpio.exe", pid=77, self_pid=77)
+        self.assertEqual((a.kind, a.level), ("self", self.c.Level.NORMAL))
+        self.assertTrue(a.what and a.risk)
+
+    def test_paths_are_ranked_by_what_breaks(self):
+        L = self.c.Level
+        cases = {
+            "C:\\": L.VITAL, "D:\\": L.IMPORTANT, r"C:\pagefile.sys": L.IMPORTANT, r"C:\bootmgr": L.VITAL,
+            r"C:\Windows": L.VITAL, r"C:\Windows\System32\drivers\ntfs.sys": L.VITAL,
+            r"C:\Windows\WinSxS\x": L.VITAL, r"C:\Windows\Fonts\arial.ttf": L.IMPORTANT,
+            r"C:\Windows\Temp\a.tmp": L.CAUTION, r"C:\Windows\SoftwareDistribution\Download\x": L.CAUTION,
+            r"C:\Windows\SoftwareDistribution\DataStore": L.IMPORTANT,
+            r"D:\System Volume Information": L.IMPORTANT, r"E:\$RECYCLE.BIN\S-1": L.IMPORTANT,
+            r"C:\Program Files\Acme\acme.exe": L.IMPORTANT, r"C:\ProgramData\Acme\cfg": L.CAUTION,
+            r"C:\ProgramData\Microsoft\Windows": L.IMPORTANT,
+            r"C:\Users\ana": L.VITAL, r"C:\Users\ana\NTUSER.DAT": L.VITAL, r"C:\Users\ana\AppData\Local": L.IMPORTANT,
+            r"C:\Users\ana\AppData\Roaming\Acme": L.CAUTION, r"C:\Users\ana\AppData\Local\Temp\x.tmp": L.NORMAL,
+            r"C:\Users\ana\Documents": L.IMPORTANT, r"C:\Users\ana\Documents\carta.docx": L.NORMAL,
+            r"C:\Users\ana\proyectos\x\node_modules": L.NORMAL, r"C:\Users\luis\Desktop\a.txt": L.CAUTION,
+            r"C:\Users\Public": L.IMPORTANT, r"D:\Apps\SuperLimpio\app\main.py": L.IMPORTANT,
+            r"D:\Juegos\partida.sav": L.NORMAL, "C:/Windows/System32/": L.VITAL,
+            r"C:\pagefile.sys\x": L.NORMAL, r"D:\Windows\System32": L.NORMAL,
+        }
+        for path, level in cases.items():
+            a = self.c.assess_path(path, env=self.ENV)
+            self.assertEqual(a.level, level, path)
+            self.assertTrue(a.what and a.risk, path)
+
+    def test_only_system_files_are_flagged_as_damaging(self):
+        flagged = lambda p: self.c.assess_path(p, env=self.ENV).system  # noqa: E731
+        for path in ("C:\\", r"C:\Windows\System32\ntoskrnl.exe", r"C:\Windows\System32\config\SYSTEM",
+                     r"C:\Windows\WinSxS\x", r"C:\Windows\Installer\a.msi", r"C:\pagefile.sys", r"C:\bootmgr",
+                     r"C:\EFI\Microsoft\Boot\bootmgfw.efi", r"D:\System Volume Information",
+                     r"C:\Users\ana\NTUSER.DAT", r"C:\Users\ana", r"C:\ProgramData\Microsoft\Crypto"):
+            self.assertTrue(flagged(path), path)
+        # importantes o delicados, pero no del sistema: no se destacan
+        for path in (r"C:\Program Files\Acme\acme.exe", r"C:\ProgramData\Acme\cfg", r"C:\Users\ana\Documents",
+                     r"C:\Users\ana\AppData\Roaming\Acme", r"D:\Apps\SuperLimpio\app\main.py",
+                     r"C:\Users\luis\Desktop\a.txt", r"D:\Juegos\partida.sav",
+                     # Windows los regenera: borrarlos no daña nada
+                     r"C:\Windows\Temp\a.tmp", r"C:\Windows\SoftwareDistribution\Download\x",
+                     r"C:\Windows\Prefetch\A.pf", r"E:\$RECYCLE.BIN\S-1"):
+            self.assertFalse(flagged(path), path)
+
+    def test_analysis_explains_system_processes(self):
+        from superlimpio import optimizer
+        from superlimpio.winapi import MemoryStatus
+        gb = 1024 ** 3
+        procs = [
+            _proc(4, "System", ppid=0, private=1 * gb),
+            _proc(600, "services.exe", r"C:\Windows\System32\services.exe", ppid=4),
+            _proc(700, "svchost.exe", r"C:\Windows\System32\svchost.exe", ppid=600, private=5 * gb),
+            _proc(800, "game.exe", r"D:\Games\game.exe", private=6 * gb),
+            _proc(900, "SuperLimpio.exe", r"D:\Apps\SuperLimpio\SuperLimpio.exe"),
+        ]
+        mem = MemoryStatus(total=16 * gb, available=4 * gb, load_pct=75, commit_total=20 * gb,
+                           commit_available=8 * gb)
+        rep = optimizer.analyze([(0.0, procs), (1.0, procs)], mem, ncpu=4, self_pid=900, windir=self.WIN)
+        by = {u.name: u for u in rep.programs}
+        L = self.c.Level
+        self.assertEqual((by["svchost.exe"].level, by["game.exe"].level), (L.VITAL, L.NORMAL))
+        self.assertTrue(by["SuperLimpio.exe"].own and not by["game.exe"].own)
+        self.assertTrue(all(u.what and u.risk for u in rep.programs))
+        hogs = {f.title.split()[0]: f for f in rep.findings if f.goto == "memory"}
+        # al proceso vital que acapara memoria no se le aconseja lo mismo que a un programa corriente
+        self.assertIn(i18n.t("opt.find.hog_system_advice"), hogs["svchost.exe"].advice)
+        self.assertEqual(hogs["game.exe"].advice, i18n.t("opt.find.hog_advice"))
+        self.assertTrue(any(f.title == i18n.t("opt.find.system_share", size=fmt_size(6 * gb + 100 * 1024 ** 2),
+                                              pct=i18n.percent("38")) for f in rep.findings))
+
+
 if __name__ == "__main__":
     unittest.main()

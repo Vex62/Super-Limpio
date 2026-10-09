@@ -15,7 +15,7 @@ from tkinter import filedialog, messagebox, ttk
 from .. import archiver, i18n, winapi
 from ..safety import log_action
 from ..util import fmt_count, fmt_size
-from . import theme
+from . import theme, winframe
 
 
 class CompressDialog(tk.Toplevel):
@@ -147,11 +147,7 @@ class CompressDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self._refresh_notes()
 
-        self.update_idletasks()
-        top = parent.winfo_toplevel()
-        x = top.winfo_rootx() + (top.winfo_width() - self.winfo_reqwidth()) // 2
-        y = top.winfo_rooty() + (top.winfo_height() - self.winfo_reqheight()) // 4
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        winframe.place_dialog(self, parent, vertical=1 / 4)
         self.grab_set()
         ent.focus_set()
 

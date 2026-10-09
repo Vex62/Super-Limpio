@@ -141,7 +141,7 @@ class ProgramsView(View):
                 self.app.bg.call_in_ui(self._measured, r, size, i + 1, len(rows))
             return None
 
-        self.app.bg.run(work, on_done=lambda _r: self._measure_end())
+        self.app.bg.run(work, on_done=lambda _r: self._measure_end(ev), on_error=lambda _e: self._measure_end(ev))
 
     def _measured(self, r, size: int, i: int, n: int) -> None:
         r["p"].real_size = size
@@ -151,7 +151,9 @@ class ProgramsView(View):
             self._update_summary()
         self.status(i18n.t("programs.measuring", i=i, n=n, name=r['p'].name))
 
-    def _measure_end(self) -> None:
+    def _measure_end(self, ev: threading.Event) -> None:
+        if self.cancel_ev is not None and self.cancel_ev is not ev:
+            return   # se detuvo y ya hay otra medición en marcha: esa es la que manda
         for r in self.table.rows:
             r["measuring"] = False
         self.cancel_ev = None

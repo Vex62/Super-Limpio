@@ -57,7 +57,9 @@ def detect_os_language() -> str:
     return _DEFAULT
 
 
-def t(key: str, **kw) -> str:
+def t(key: str, /, **kw) -> str:
+    # «key» es solo posicional: así un texto puede tener un marcador {key} (o {n}, {text}...)
+    # sin chocar con el nombre del parámetro.
     entry = CATALOG.get(key)
     if entry is None:
         return key.format(**kw) if kw else key
@@ -65,7 +67,7 @@ def t(key: str, **kw) -> str:
     return text.format(**kw) if kw else text
 
 
-def plural(n: int, key: str, **kw) -> str:
+def plural(n: int, key: str, /, **kw) -> str:
     """Elige la forma singular/plural: usa las claves ``key.one`` y ``key.other``."""
     return t(f"{key}.one" if n == 1 else f"{key}.other", n=n, **kw)
 
@@ -1337,4 +1339,346 @@ CATALOG: dict[str, dict[str, str]] = {
     "systool.hiber_on.desc": {"en": "Recreates hiberfil.sys and enables Fast startup.",
                               "es": "Vuelve a crear hiberfil.sys y habilita el Inicio rápido."},
     "systool.hiber_on.effect": {"en": "Re-enables hibernation.", "es": "Reactiva la hibernación."},
+
+    # ------------------------------------------------- ventana, tamaño y salida
+    "app.ui_size_hint": {
+        "en": "Interface size: Ctrl + to enlarge, Ctrl − to shrink, Ctrl 0 (or click the percentage) for 100%.",
+        "es": "Tamaño de la interfaz: Ctrl + para ampliar, Ctrl − para reducir, Ctrl 0 (o clic en el "
+              "porcentaje) para volver al 100 %."},
+    "app.busy_wait": {"en": "Wait until this finishes: {what}", "es": "Espera a que termine: {what}"},
+    "app.pending.delete": {"en": "deleting files", "es": "borrado de archivos"},
+    "app.pending.clean": {"en": "cleanup in progress", "es": "limpieza en curso"},
+    "app.pending.optimize": {"en": "closing or slowing down programs", "es": "cierre o ralentización de programas"},
+    "app.exit.busy_title": {"en": "Operation in progress", "es": "Operación en curso"},
+    "app.exit.busy_body": {
+        "en": "Super Limpio is still working:\n\n{what}\n\nIf you exit now it stops halfway: what is already "
+              "done stays done and the rest is left untouched.\n\nExit anyway?",
+        "es": "Super Limpio sigue trabajando:\n\n{what}\n\nSi sales ahora se queda a medias: lo que ya está "
+              "hecho, hecho queda, y el resto no se toca.\n\n¿Salir de todos modos?"},
+    "app.exit.self_title": {"en": "Close Super Limpio", "es": "Cerrar Super Limpio"},
+    "app.exit.self_body": {
+        "en": "This is Super Limpio itself. It is not force-ended like other processes: it closes in an "
+              "orderly way. Running analyses are stopped, your preferences are kept and, if Efficient mode "
+              "is on, you will be asked whether to undo it first.",
+        "es": "Este es el propio Super Limpio. No se finaliza a la fuerza como los demás procesos: se cierra "
+              "de forma ordenada. Se detienen los análisis en marcha, se conservan tus preferencias y, si el "
+              "Modo eficiente está activo, se te pregunta antes si quieres deshacerlo."},
+    "app.exit.self_ok": {"en": "Close Super Limpio", "es": "Cerrar Super Limpio"},
+
+    # ------------------------------------------ importancia para el sistema
+    "crit.level.0": {"en": "Normal", "es": "Normal"},
+    "crit.level.1": {"en": "Caution", "es": "Precaución"},
+    "crit.level.2": {"en": "Important", "es": "Importante"},
+    "crit.level.3": {"en": "Vital", "es": "Vital"},
+
+    "crit.proc.self": {"en": "This is Super Limpio, the application you are using.",
+                       "es": "Es Super Limpio, la aplicación que estás usando."},
+    "crit.proc.system": {"en": "The Windows kernel and its drivers.",
+                         "es": "El núcleo de Windows y sus controladores."},
+    "crit.proc.idle": {"en": "Not a program: it stands for the processor time nobody is using.",
+                       "es": "No es un programa: representa el tiempo de procesador que nadie usa."},
+    "crit.proc.registry": {"en": "Holds the Windows registry in memory.",
+                           "es": "Mantiene en memoria el registro de Windows."},
+    "crit.proc.memcompression": {
+        "en": "Windows memory compression: it squeezes RAM that is not in use so more fits. Its size is "
+              "memory saved, not wasted.",
+        "es": "Compresión de memoria de Windows: aprieta la RAM que no se usa para que quepa más. Lo que "
+              "ocupa es memoria ahorrada, no gastada."},
+    "crit.proc.secure": {"en": "Isolated security environment of Windows (virtualization-based security).",
+                         "es": "Entorno de seguridad aislado de Windows (seguridad basada en virtualización)."},
+    "crit.proc.smss": {"en": "Session Manager: starts the user sessions and the rest of the system.",
+                       "es": "Administrador de sesiones: arranca las sesiones de usuario y el resto del sistema."},
+    "crit.proc.csrss": {"en": "Client/Server Runtime: every Windows program depends on it.",
+                        "es": "Subsistema cliente/servidor: todos los programas de Windows dependen de él."},
+    "crit.proc.wininit": {"en": "Windows start-up process: it launches the services and the security system.",
+                          "es": "Proceso de arranque de Windows: lanza los servicios y el sistema de seguridad."},
+    "crit.proc.services": {"en": "Service Control Manager: starts and supervises every Windows service.",
+                           "es": "Administrador de servicios: inicia y vigila todos los servicios de Windows."},
+    "crit.proc.lsass": {"en": "Local Security Authority: checks passwords and logons.",
+                        "es": "Autoridad de seguridad local: comprueba contraseñas e inicios de sesión."},
+    "crit.proc.lsaiso": {"en": "Credential Guard: keeps passwords in an isolated area.",
+                         "es": "Credential Guard: guarda las contraseñas en una zona aislada."},
+    "crit.proc.winlogon": {"en": "Windows logon: owns your session and the lock screen.",
+                           "es": "Inicio de sesión de Windows: sostiene tu sesión y la pantalla de bloqueo."},
+    "crit.proc.svchost": {
+        "en": "Service host: each copy runs Windows services (network, audio, updates, Bluetooth...).",
+        "es": "Host de servicios: cada copia ejecuta servicios de Windows (red, sonido, actualizaciones, "
+              "Bluetooth...)."},
+    "crit.proc.dwm": {"en": "Desktop Window Manager: draws every window on screen.",
+                      "es": "Administrador de ventanas del escritorio: dibuja todas las ventanas en pantalla."},
+    "crit.proc.fontdrvhost": {"en": "Font driver host: renders the text of every program.",
+                              "es": "Host del controlador de fuentes: dibuja el texto de todos los programas."},
+    "crit.proc.essential": {"en": "Essential Windows process.", "es": "Proceso esencial de Windows."},
+    "crit.proc.defender": {"en": "Microsoft Defender antivirus engine.",
+                           "es": "Motor del antivirus Microsoft Defender."},
+    "crit.proc.defender_net": {"en": "Microsoft Defender network inspection.",
+                               "es": "Inspección de red de Microsoft Defender."},
+    "crit.proc.security_center": {"en": "Windows Security service.", "es": "Servicio de Seguridad de Windows."},
+    "crit.proc.sgrm": {"en": "System Guard: checks that Windows has not been tampered with.",
+                       "es": "System Guard: comprueba que Windows no ha sido manipulado."},
+    "crit.proc.security": {"en": "Security or anti-cheat software.", "es": "Software de seguridad o anti-trampas."},
+    "crit.proc.audiodg": {"en": "Windows audio engine.", "es": "Motor de sonido de Windows."},
+    "crit.proc.spooler": {"en": "Print spooler.", "es": "Cola de impresión."},
+    "crit.proc.wudfhost": {"en": "Host for device drivers (USB, sensors, card readers...).",
+                           "es": "Host de controladores de dispositivos (USB, sensores, lectores de tarjetas...)."},
+    "crit.proc.update": {"en": "Windows Update: it is installing or preparing updates.",
+                         "es": "Windows Update: está instalando o preparando actualizaciones."},
+    "crit.proc.msiexec": {"en": "Windows Installer: a program is being installed, repaired or removed.",
+                          "es": "Windows Installer: se está instalando, reparando o quitando un programa."},
+    "crit.proc.explorer": {"en": "File Explorer: also the desktop, the taskbar and the Start menu.",
+                           "es": "Explorador de archivos: también el escritorio, la barra de tareas y el menú Inicio."},
+    "crit.proc.sihost": {"en": "Shell infrastructure: notifications, action center and Start menu.",
+                         "es": "Infraestructura del escritorio: notificaciones, centro de actividades y menú Inicio."},
+    "crit.proc.shell": {"en": "Part of the Windows desktop.", "es": "Parte del escritorio de Windows."},
+    "crit.proc.ctfmon": {"en": "Text input: keyboard layouts, accents, emoji panel and handwriting.",
+                         "es": "Entrada de texto: idiomas del teclado, acentos, panel de emojis y escritura a mano."},
+    "crit.proc.search": {"en": "Windows search box.", "es": "Buscador de Windows."},
+    "crit.proc.indexer": {"en": "Search indexer: keeps the index that makes file searches instant.",
+                          "es": "Indexador de búsqueda: mantiene el índice que hace instantáneas las búsquedas."},
+    "crit.proc.startmenu": {"en": "The Start menu.", "es": "El menú Inicio."},
+    "crit.proc.shellexp": {"en": "Taskbar panels: clock, calendar, volume and network.",
+                           "es": "Paneles de la barra de tareas: reloj, calendario, volumen y red."},
+    "crit.proc.taskhost": {"en": "Host for Windows background tasks.",
+                           "es": "Host de tareas en segundo plano de Windows."},
+    "crit.proc.runtimebroker": {"en": "Permission broker for Microsoft Store apps.",
+                                "es": "Gestor de permisos de las aplicaciones de la Tienda."},
+    "crit.proc.appframe": {"en": "Window frame of Microsoft Store apps.",
+                           "es": "Marco de las ventanas de las aplicaciones de la Tienda."},
+    "crit.proc.dllhost": {"en": "COM surrogate: runs components on behalf of other programs (thumbnails, "
+                                "previews...).",
+                          "es": "Sustituto COM: ejecuta componentes por cuenta de otros programas (miniaturas, "
+                                "vistas previas...)."},
+    "crit.proc.conhost": {"en": "Console window host: the window of a command-line program.",
+                          "es": "Host de consola: la ventana de un programa de línea de comandos."},
+    "crit.proc.wmi": {"en": "WMI provider: answers system queries from other programs.",
+                      "es": "Proveedor WMI: responde consultas del sistema que hacen otros programas."},
+    "crit.proc.dashost": {"en": "Device pairing (Bluetooth, wireless displays, printers).",
+                          "es": "Emparejamiento de dispositivos (Bluetooth, pantallas inalámbricas, impresoras)."},
+    "crit.proc.wlan": {"en": "Wi-Fi adapter extension.", "es": "Extensión del adaptador Wi-Fi."},
+    "crit.proc.vmmem": {"en": "Memory of a virtual machine (WSL, Docker, Windows Sandbox or Hyper-V).",
+                        "es": "Memoria de una máquina virtual (WSL, Docker, Windows Sandbox o Hyper-V)."},
+    "crit.proc.windows_tool": {"en": "A Windows program that you opened.",
+                               "es": "Programa de Windows que has abierto tú."},
+    "crit.proc.windows_service": {"en": "Windows service.", "es": "Servicio de Windows."},
+    "crit.proc.app_service": {"en": "Background service installed by a program.",
+                              "es": "Servicio en segundo plano instalado por un programa."},
+    "crit.proc.windows_component": {"en": "Windows component.", "es": "Componente de Windows."},
+    "crit.proc.no_access": {
+        "en": "Windows does not let a standard user inspect it: it is usually a service or a system component.",
+        "es": "Windows no deja inspeccionarlo como usuario estándar: suele ser un servicio o un componente "
+              "del sistema."},
+    "crit.proc.normal": {"en": "Ordinary program: Windows does not depend on it.",
+                         "es": "Programa corriente: Windows no depende de él."},
+
+    "crit.risk.self": {"en": "It can be closed safely: nothing is left half done.",
+                       "es": "Se puede cerrar con seguridad: no deja nada a medias."},
+    "crit.risk.vital": {
+        "en": "If it stops, Windows halts with a blue screen or restarts at once: everything unsaved is lost.",
+        "es": "Si se detiene, Windows se para con una pantalla azul o se reinicia al momento: se pierde todo "
+              "lo que no esté guardado."},
+    "crit.risk.session": {
+        "en": "If it stops, the screen goes black and the session is closed: everything unsaved is lost.",
+        "es": "Si se detiene, la pantalla se queda en negro y se cierra la sesión: se pierde todo lo que no "
+              "esté guardado."},
+    "crit.risk.svchost": {
+        "en": "Ending one can cut the network or the sound, and some copies restart the PC.",
+        "es": "Finalizar una copia puede dejarte sin red o sin sonido, y algunas reinician el equipo."},
+    "crit.risk.security": {"en": "Closing it leaves the PC unprotected (or gets you kicked out of online games).",
+                           "es": "Cerrarlo deja el equipo desprotegido (o te expulsa de los juegos en línea)."},
+    "crit.risk.audio": {"en": "Without it there is no sound until Windows starts it again.",
+                        "es": "Sin él no hay sonido hasta que Windows lo vuelva a lanzar."},
+    "crit.risk.print": {"en": "Without it nothing can be printed and pending jobs are lost.",
+                        "es": "Sin él no se puede imprimir y se pierden los trabajos pendientes."},
+    "crit.risk.driver": {"en": "The devices that depend on it stop working until they are reconnected.",
+                         "es": "Los dispositivos que dependen de él dejan de funcionar hasta reconectarlos."},
+    "crit.risk.update": {"en": "Interrupting it can leave an installation half done and broken.",
+                         "es": "Interrumpirlo puede dejar una instalación a medias y estropeada."},
+    "crit.risk.shell": {
+        "en": "If it closes, the desktop and the taskbar vanish for a few seconds, and open folder windows "
+              "are lost.",
+        "es": "Si se cierra, el escritorio y la barra de tareas desaparecen unos segundos y se pierden las "
+              "carpetas abiertas."},
+    "crit.risk.input": {"en": "If it closes you may be unable to type accents or switch keyboard language.",
+                        "es": "Si se cierra puede que no puedas escribir acentos ni cambiar el idioma del teclado."},
+    "crit.risk.relaunch": {"en": "Windows starts it again on its own; something may fail for a moment.",
+                           "es": "Windows lo vuelve a lanzar solo; algo puede fallar un momento."},
+    "crit.risk.store_apps": {"en": "Closing it closes every open Microsoft Store app.",
+                             "es": "Cerrarlo cierra todas las aplicaciones de la Tienda que estén abiertas."},
+    "crit.risk.console": {"en": "Closing it ends the command-line program running inside.",
+                          "es": "Cerrarlo termina el programa de línea de comandos que hay dentro."},
+    "crit.risk.network": {"en": "The Wi-Fi connection drops until it starts again.",
+                          "es": "La conexión Wi-Fi se corta hasta que se reinicie."},
+    "crit.risk.vm": {"en": "Ending it powers the virtual machine off abruptly. Shut it down from its own program "
+                           "(for WSL: wsl --shutdown).",
+                     "es": "Finalizarlo apaga la máquina virtual de golpe. Apágala desde su programa (en WSL: "
+                           "wsl --shutdown)."},
+    "crit.risk.service": {"en": "Stop it from Services (services.msc), not by ending the process: whatever "
+                                "depends on it stops working.",
+                          "es": "Se detiene desde Servicios (services.msc), no finalizando el proceso: lo que "
+                                "dependa de él deja de funcionar."},
+    "crit.risk.component": {"en": "Closing it is not recommended: a Windows feature may stop working until "
+                                  "the next restart.",
+                            "es": "No se recomienda cerrarlo: alguna función de Windows puede dejar de funcionar "
+                                  "hasta reiniciar."},
+    "crit.risk.unknown": {"en": "Run Super Limpio as administrator to find out what it is before closing it.",
+                          "es": "Ejecuta Super Limpio como administrador para saber qué es antes de cerrarlo."},
+    "crit.risk.normal": {"en": "Closing it only loses whatever was not saved in it.",
+                         "es": "Cerrarlo solo hace perder lo que no esté guardado en él."},
+
+    "crit.path.drive_root": {"en": "The root of a drive.", "es": "La raíz de una unidad."},
+    "crit.path.windows": {"en": "The Windows folder: the operating system itself.",
+                          "es": "La carpeta de Windows: el propio sistema operativo."},
+    "crit.path.system32": {"en": "Windows core: its programs, libraries and drivers.",
+                           "es": "El corazón de Windows: sus programas, bibliotecas y controladores."},
+    "crit.path.registry": {"en": "The Windows registry (all system and program settings).",
+                           "es": "El registro de Windows (toda la configuración del sistema y de los programas)."},
+    "crit.path.drivers": {"en": "Device drivers.", "es": "Controladores de dispositivos."},
+    "crit.path.winsxs": {"en": "Windows component store: every version of the system files.",
+                         "es": "Almacén de componentes de Windows: todas las versiones de los archivos del sistema."},
+    "crit.path.installer": {"en": "Installers Windows keeps to repair, update or uninstall programs.",
+                            "es": "Instaladores que Windows guarda para reparar, actualizar o desinstalar programas."},
+    "crit.path.update_cache": {"en": "Updates already downloaded by Windows Update.",
+                               "es": "Actualizaciones ya descargadas por Windows Update."},
+    "crit.path.update_db": {"en": "Windows Update database.", "es": "Base de datos de Windows Update."},
+    "crit.path.windows_temp": {"en": "Windows temporary files.", "es": "Archivos temporales de Windows."},
+    "crit.path.prefetch": {"en": "Start-up traces that make programs open faster.",
+                           "es": "Trazas de arranque que hacen que los programas abran antes."},
+    "crit.path.windows_logs": {"en": "Windows logs.", "es": "Registros (logs) de Windows."},
+    "crit.path.dumps": {"en": "Memory dumps saved after a crash.", "es": "Volcados de memoria guardados tras un fallo."},
+    "crit.path.windows_component": {"en": "Part of Windows.", "es": "Parte de Windows."},
+    "crit.path.boot": {"en": "Boot files: what starts Windows.", "es": "Archivos de arranque: lo que inicia Windows."},
+    "crit.path.recovery": {"en": "Windows recovery environment.", "es": "Entorno de recuperación de Windows."},
+    "crit.path.pagefile": {"en": "Paging file (virtual memory).", "es": "Archivo de paginación (memoria virtual)."},
+    "crit.path.hiberfil": {"en": "Hibernation and Fast startup file.",
+                           "es": "Archivo de hibernación y del Inicio rápido."},
+    "crit.path.swapfile": {"en": "Virtual memory of modern apps.", "es": "Memoria virtual de las apps modernas."},
+    "crit.path.dumpstack": {"en": "Crash-dump log of Windows.", "es": "Registro de volcados de fallos de Windows."},
+    "crit.path.restore_points": {"en": "Restore points and the search index of the drive.",
+                                 "es": "Puntos de restauración e índice de búsqueda de la unidad."},
+    "crit.path.recycle_bin": {"en": "The Recycle Bin of the drive.", "es": "La Papelera de reciclaje de la unidad."},
+    "crit.path.program_files": {"en": "The folder where programs are installed.",
+                                "es": "La carpeta donde se instalan los programas."},
+    "crit.path.installed_program": {"en": "Files of an installed program.", "es": "Archivos de un programa instalado."},
+    "crit.path.store_apps": {"en": "Microsoft Store apps and their data.",
+                             "es": "Aplicaciones de la Tienda y sus datos."},
+    "crit.path.programdata": {"en": "Data shared by Windows and the installed programs.",
+                              "es": "Datos compartidos de Windows y de los programas instalados."},
+    "crit.path.package_cache": {"en": "Installers saved by programs to repair or uninstall themselves.",
+                                "es": "Instaladores que guardan los programas para repararse o desinstalarse."},
+    "crit.path.app_data": {"en": "Settings and data of a program.", "es": "Configuración y datos de un programa."},
+    "crit.path.ms_user_data": {"en": "Your settings for Windows and Microsoft programs.",
+                               "es": "Tu configuración de Windows y de programas de Microsoft."},
+    "crit.path.appdata_root": {"en": "Where every program keeps your settings.",
+                               "es": "Donde todos los programas guardan tu configuración."},
+    "crit.path.user_temp": {"en": "Your temporary files.", "es": "Tus archivos temporales."},
+    "crit.path.profile": {"en": "Your user profile: documents, desktop and all your settings.",
+                          "es": "Tu perfil de usuario: documentos, escritorio y toda tu configuración."},
+    "crit.path.user_registry": {"en": "Your part of the Windows registry.", "es": "Tu parte del registro de Windows."},
+    "crit.path.personal_folder": {"en": "One of your personal folders.", "es": "Una de tus carpetas personales."},
+    "crit.path.personal": {"en": "A personal file: Windows does not need it.",
+                           "es": "Archivo personal: Windows no lo necesita."},
+    "crit.path.users_root": {"en": "User profiles of this PC.", "es": "Perfiles de usuario de este equipo."},
+    "crit.path.other_profile": {"en": "Files of another user of this PC.",
+                                "es": "Archivos de otro usuario de este equipo."},
+    "crit.path.own_app": {"en": "Part of Super Limpio itself.", "es": "Forma parte del propio Super Limpio."},
+    "crit.path.normal": {"en": "Not part of Windows or of an installed program.",
+                         "es": "No forma parte de Windows ni de un programa instalado."},
+
+    "crit.prisk.vital": {"en": "Without it Windows does not start or stops working. Super Limpio will not "
+                               "delete it.",
+                         "es": "Sin ello Windows no arranca o deja de funcionar. Super Limpio no lo borra."},
+    "crit.prisk.drive_root": {"en": "Deleting it would erase the whole drive. Super Limpio will not delete it.",
+                              "es": "Borrarla sería borrar la unidad entera. Super Limpio no la borra."},
+    "crit.prisk.important": {"en": "Deleting it breaks Windows features or programs. Super Limpio will not "
+                                   "delete it.",
+                             "es": "Borrarlo estropea funciones de Windows o programas. Super Limpio no lo borra."},
+    "crit.prisk.winsxs": {"en": "It must never be deleted by hand: reduce it with \"System tools\" (DISM).",
+                          "es": "Nunca se borra a mano: se reduce desde «Herramientas del sistema» (DISM)."},
+    "crit.prisk.managed": {"en": "Windows manages it; it is resized or removed from the system settings, "
+                                 "not by deleting it.",
+                           "es": "Lo gestiona Windows; se ajusta o se quita desde la configuración del sistema, "
+                                 "no borrándolo."},
+    "crit.prisk.regen": {"en": "Windows recreates it. Empty it from \"Cleanup\", which knows what is safe.",
+                         "es": "Windows lo vuelve a crear. Vacíalo desde «Limpieza», que sabe qué es seguro."},
+    "crit.prisk.recycle_bin": {"en": "Empty it from \"Cleanup\" instead of deleting the folder.",
+                               "es": "Vacíala desde «Limpieza» en vez de borrar la carpeta."},
+    "crit.prisk.program": {"en": "Deleting it by hand leaves the program broken and still registered. Use "
+                                 "\"Programs > Uninstall\".",
+                           "es": "Borrarlo a mano deja el programa roto y todavía registrado. Usa «Programas > "
+                                 "Desinstalar»."},
+    "crit.prisk.package_cache": {"en": "Without them some programs cannot be repaired, updated or uninstalled.",
+                                 "es": "Sin ellos algunos programas no se pueden reparar, actualizar ni desinstalar."},
+    "crit.prisk.app_data": {"en": "Windows keeps working, but that program may lose its settings, accounts or "
+                                  "saved data.",
+                            "es": "Windows sigue funcionando, pero ese programa puede perder su configuración, "
+                                  "sus cuentas o sus datos guardados."},
+    "crit.prisk.profile": {"en": "Deleting it destroys your account on this PC. Super Limpio will not delete it.",
+                           "es": "Borrarlo destruye tu cuenta en este equipo. Super Limpio no lo borra."},
+    "crit.prisk.personal_folder": {"en": "The folder itself cannot be deleted; what you keep inside can.",
+                                   "es": "La carpeta en sí no se borra; lo que guardas dentro, sí."},
+    "crit.prisk.personal": {"en": "No risk for the system, but it is yours and cannot be regenerated: check "
+                                  "that you do not need it.",
+                            "es": "Sin riesgo para el sistema, pero es tuyo y no se regenera: comprueba que no "
+                                  "lo necesitas."},
+    "crit.prisk.other_profile": {"en": "Windows keeps working, but that person loses their files.",
+                                 "es": "Windows sigue funcionando, pero esa persona pierde sus archivos."},
+    "crit.prisk.own_app": {"en": "Deleting it breaks this application.", "es": "Borrarlo estropea esta aplicación."},
+    "crit.prisk.normal": {"en": "No risk for the system; just check that you do not need it.",
+                          "es": "Sin riesgo para el sistema; solo comprueba que no lo necesitas."},
+
+    # ------------------------------------------- avisos de importancia en las vistas
+    "memory.col.level": {"en": "Importance", "es": "Importancia"},
+    "memory.this_app": {"en": "this application", "es": "esta aplicación"},
+    "memory.detail_hint": {
+        "en": "Select a process to see what it is, whether Windows needs it and what happens if it is closed.",
+        "es": "Selecciona un proceso para ver qué es, si Windows lo necesita y qué pasa si se cierra."},
+    "memory.detail_title": {"en": "{name}  ·  {level}", "es": "{name}  ·  {level}"},
+    "memory.detail_multi": {"en": "{n} selected; the most delicate one:  ",
+                            "es": "{n} seleccionados; el más delicado:  "},
+    "memory.detail_blocked": {"en": "Super Limpio will not end it.", "es": "Super Limpio no lo finaliza."},
+    "memory.kill.warnings": {"en": "\n\nWhat these are for the system:\n{items}",
+                             "es": "\n\nQué son para el sistema:\n{items}"},
+    "memory.kill.system_warning": {
+        "en": "\n\nWarning: the list includes Windows components or services. Read below what each one is "
+              "before continuing.",
+        "es": "\n\nAtención: la lista incluye componentes o servicios de Windows. Lee abajo qué es cada uno "
+              "antes de continuar."},
+    "disk.legend.vital": {"en": "Vital for Windows", "es": "Vital para Windows"},
+    "disk.legend.important": {"en": "System file", "es": "Del sistema"},
+    "disk.risk_line": {"en": "{level}  ·  {text}", "es": "{level}  ·  {text}"},
+    "disk.risk_multi": {"en": "{n} of {total} need care; the most delicate one:  ",
+                        "es": "{n} de {total} requieren cuidado; el más delicado:  "},
+    "disk.delicate_warning": {
+        "en": "\n\nWarning: {n} of them are not ordinary files (program data, other users' files...). Read "
+              "below what each one is.",
+        "es": "\n\nAtención: {n} no son archivos corrientes (datos de programas, archivos de otros "
+              "usuarios...). Lee abajo qué es cada uno."},
+    "disk.delicate_details": {"en": "\n\nWhat these are for the system:\n{items}",
+                              "es": "\n\nQué son para el sistema:\n{items}"},
+    "opt.find.hog_system_advice": {
+        "en": "Do not close it. If the figure looks abnormal, restart the PC: that is what returns this "
+              "memory.",
+        "es": "No lo cierres. Si la cifra te parece anormal, reinicia el equipo: es lo que devuelve esta "
+              "memoria."},
+    "opt.find.growth_system_advice": {
+        "en": "It usually settles on its own. If it keeps growing for hours, restart the PC and check for "
+              "pending driver or Windows updates.",
+        "es": "Suele estabilizarse solo. Si sigue creciendo durante horas, reinicia el equipo y revisa si "
+              "hay actualizaciones de controladores o de Windows pendientes."},
+    "opt.find.bg_cpu_system_advice": {
+        "en": "It is usually temporary work (antivirus scan, updates, indexing): let it finish. If it goes "
+              "on for hours, restart the PC.",
+        "es": "Suele ser trabajo temporal (análisis del antivirus, actualizaciones, indexado): déjalo "
+              "terminar. Si dura horas, reinicia el equipo."},
+    "opt.find.system_share": {"en": "Windows itself holds {size} ({pct} of RAM)",
+                              "es": "El propio Windows reserva {size} ({pct} de la RAM)"},
+    "opt.find.system_share_detail": {"en": "{n} system programs, {vital} of them vital",
+                                     "es": "{n} programas del sistema, {vital} de ellos vitales"},
+    "opt.find.system_share_advice": {
+        "en": "This memory belongs to the system processes marked \"Vital\" or \"Important\" in the table. "
+              "It is not freed by closing anything, and Super Limpio never proposes them: the room to gain "
+              "is in the programs marked as normal.",
+        "es": "Es la memoria de los procesos del sistema marcados como «Vital» o «Importante» en la tabla. "
+              "No se libera cerrando nada, y Super Limpio nunca los propone: el margen está en los "
+              "programas marcados como normales."},
 }

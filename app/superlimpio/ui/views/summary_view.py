@@ -88,7 +88,8 @@ class SummaryView(View):
         self.refresh()
 
     def refresh(self) -> None:
-        self.app.bg.run(self._collect, on_done=self._render)
+        self.app.bg.run(self._collect, on_done=self._render,
+                        on_error=lambda e: self.status(f"{i18n.t('common.error')}: {e}"))
 
     def _collect(self):
         drives = []

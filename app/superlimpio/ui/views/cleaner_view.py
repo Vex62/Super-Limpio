@@ -10,7 +10,7 @@ from ... import cleaner, i18n, winapi
 from ...safety import Risk
 from ...util import fmt_count, fmt_size
 from .. import dialogs, theme
-from ..widgets import ScrollTree
+from ..widgets import ScrollTree, bind_wheel
 from .base import View
 
 
@@ -26,6 +26,7 @@ class CleanerView(View):
         self.vars: dict[str, tk.BooleanVar] = {}
         self.estimates: dict[str, cleaner.Estimate] = {}
         self.cancel_ev: threading.Event | None = None
+        self._cleaning = False
         self._desc_labels: list[tk.Label] = []
 
         # Panel divisible: el usuario arrastra el borde para agrandar/reducir cada caja.
@@ -43,9 +44,7 @@ class CleanerView(View):
         canvas.configure(yscrollcommand=sb.set)
         sb.pack(side="right", fill="y")
         canvas.pack(side="left", fill="both", expand=True)
-        canvas.bind("<Enter>", lambda e: canvas.bind_all(
-            "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-ev.delta / 120), "units")))
-        canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
+        bind_wheel(canvas)
 
         group = None
         for c in self.cats:
@@ -137,7 +136,17 @@ class CleanerView(View):
                 self.app.bg.call_in_ui(self._add_estimate, est, i + 1)
             return None
 
-        self.app.bg.run(work, on_done=lambda _r: self._analysis_done())
+        self.app.bg.run(work, on_done=lambda _r: self._analysis_done(), on_error=self._failed)
+
+    def pending(self) -> str:
+        return i18n.t("app.pending.clean") if self._cleaning else ""
+
+    def _failed(self, exc: BaseException) -> None:
+        """Un fallo inesperado no puede dejar los botones apagados para siempre."""
+        self._cleaning = False
+        self.an_btn.state(["!disabled"])
+        self.hero_txt.configure(text=f"{i18n.t('common.error')}: {exc}")
+        self.status(f"{i18n.t('common.error')}: {exc}")
 
     def _add_estimate(self, est: cleaner.Estimate, i: int) -> None:
         self.estimates[est.category.id] = est
@@ -186,6 +195,7 @@ class CleanerView(View):
                                risk=max(risk, Risk.MEDIO), ok_text=i18n.t("cleaner.run.ok")):
             return
         ev = self.cancel_ev = threading.Event()
+        self._cleaning = True
         self.an_btn.state(["disabled"])
         self.clean_btn.state(["disabled"])
         self.pbar.configure(maximum=len(cats), value=0)
@@ -198,7 +208,7 @@ class CleanerView(View):
                 self.app.bg.call_in_ui(self._cleaned, r, i + 1)
             return results
 
-        self.app.bg.run(work, on_done=self._clean_done)
+        self.app.bg.run(work, on_done=self._clean_done, on_error=self._failed)
 
     def _cleaned(self, r: cleaner.CleanResult, i: int) -> None:
         if self.tree.exists(r.category.id):
@@ -207,6 +217,7 @@ class CleanerView(View):
         self.pbar.configure(value=i)
 
     def _clean_done(self, results) -> None:
+        self._cleaning = False
         freed = sum(r.freed for r in results)
         self.hero_big.configure(text=fmt_size(freed))
         self.hero_txt.configure(text=i18n.t("cleaner.done"))

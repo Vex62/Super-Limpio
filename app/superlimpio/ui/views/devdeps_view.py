@@ -56,7 +56,7 @@ class DevDepsView(View):
         self.tree.bind("<Button-1>", self._click)
         self.tree.bind("<space>", lambda e: self._toggle(self.tree.selection()))
 
-        self.pbar = ttk.Progressbar(self, mode="indeterminate")
+        self.pbar = ttk.Progressbar(self, mode="determinate")
         self.pbar.pack(fill="x", pady=(self.px(6), 0))
 
         btns = ttk.Frame(self)
@@ -96,7 +96,16 @@ class DevDepsView(View):
             self.app.bg.call_in_ui(self.info.configure,
                                    {"text": i18n.t("devdeps.searching", n=n, cur=cur[-100:])})
 
-        self.app.bg.run(lambda: devdeps.find_artifacts(root, progress, ev), on_done=self._done)
+        self.app.bg.run(lambda: devdeps.find_artifacts(root, progress, ev), on_done=self._done,
+                        on_error=self._search_failed)
+
+    def pending(self) -> str:
+        return i18n.t("app.pending.delete") if self._deleting else ""
+
+    def _search_failed(self, exc: BaseException) -> None:
+        self.cancel_ev = None
+        self.go.configure(text=i18n.t("common.search"))
+        self.info.configure(text=f"{i18n.t('common.error')}: {exc}")
 
     def _done(self, arts) -> None:
         self.cancel_ev = None
@@ -175,13 +184,16 @@ class DevDepsView(View):
         self._deleting = True
         self.del_btn.state(["disabled"])
         self.rec_btn.state(["disabled"])
+        self.pbar.configure(mode="indeterminate")
         self.pbar.start(12)
         self.status(i18n.t("common.deleting"))
-        self.app.bg.run(lambda: fn([a.path for a in sel]), on_done=lambda r: self._deleted(sel, r))
+        self.app.bg.run(lambda: fn([a.path for a in sel]), on_done=lambda r: self._deleted(sel, r),
+                        on_error=lambda e: self._deleted(sel, (False, str(e))))
 
     def _deleted(self, sel, res) -> None:
         ok, msg = res
         self.pbar.stop()
+        self.pbar.configure(mode="determinate", value=0)   # parada, la barra queda vacía
         self._deleting = False
         self.del_btn.state(["!disabled"])
         self.rec_btn.state(["!disabled"])

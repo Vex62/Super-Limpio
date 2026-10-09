@@ -26,42 +26,64 @@ class Background:
 
     def __init__(self, root: tk.Misc, poll_ms: int = 60):
         self.root = root
-        self.q: "queue.Queue[tuple[Callable, tuple]]" = queue.Queue()
+        self.q: "queue.Queue[tuple[int, Callable, tuple]]" = queue.Queue()
         self.poll_ms = poll_ms
+        self._gen = 0
+        self._local = threading.local()
         self._poll()
+
+    def reset(self) -> None:
+        """Descarta lo pendiente: se llama al reconstruir la interfaz, para que el resultado
+        de una tarea antigua no llegue a ventanas que ya no existen."""
+        self._gen += 1
 
     def _poll(self) -> None:
         try:
             while True:
-                cb, args = self.q.get_nowait()
+                gen, cb, args = self.q.get_nowait()
+                if gen != self._gen:
+                    continue
                 try:
                     cb(*args)
                 except Exception:  # noqa: BLE001 - nunca romper el bucle de la UI
-                    traceback.print_exc()
+                    _log_error(traceback.format_exc())
         except queue.Empty:
             pass
         self.root.after(self.poll_ms, self._poll)
 
     def call_in_ui(self, cb: Callable, *args) -> None:
-        self.q.put((cb, args))
+        self.q.put((getattr(self._local, "gen", self._gen), cb, args))
 
     def run(self, fn: Callable[..., Any], *args,
             on_done: Callable[[Any], None] | None = None,
             on_error: Callable[[BaseException], None] | None = None) -> threading.Thread:
+        gen = self._gen
+
         def worker():
+            self._local.gen = gen
             try:
                 result = fn(*args)
             except BaseException as exc:  # noqa: BLE001
-                traceback.print_exc()
+                _log_error(traceback.format_exc())
                 if on_error:
-                    self.q.put((on_error, (exc,)))
+                    self.q.put((gen, on_error, (exc,)))
                 return
             if on_done:
-                self.q.put((on_done, (result,)))
+                self.q.put((gen, on_done, (result,)))
 
         t = threading.Thread(target=worker, daemon=True)
         t.start()
         return t
+
+
+def _log_error(text: str) -> None:
+    """Un fallo en segundo plano no se enseña en un diálogo, pero sí queda en el registro."""
+    from ..safety import log_action
+    log_action("error_interno", "", text[-1500:], ok=False)
+    try:
+        print(text)
+    except Exception:  # noqa: BLE001 - con pythonw no hay consola
+        pass
 
 
 # =========================================================================
@@ -108,6 +130,94 @@ def risk_badge(master, risk, font) -> tk.Label:
     fg, bg = theme.RISK_COLORS[risk]
     label = risk.label.lower() if i18n.current() == "es" else risk.label
     return badge(master, i18n.t("risk.badge", label=label), fg, bg, font)
+
+
+class ZoomStepper(tk.Frame):
+    """Control «−  100 %  +» de la barra lateral, con los colores de la marca.
+
+    Los dos botones son segmentos del mismo marco; el porcentaje del centro también se
+    puede pulsar y devuelve la interfaz al 100 %. En el límite, el botón se apaga."""
+
+    def __init__(self, master, fonts: theme.Fonts, sf: float, value: float, lo: float, hi: float,
+                 on_step: Callable[[int], None], on_reset: Callable[[], None],
+                 on_hover: Callable[[bool], None] | None = None):
+        super().__init__(master, bg=theme.ZOOM_BORDER)
+        self._hover_cb = on_hover
+        line = max(1, round(sf))
+        pady = int(5 * sf)
+        self.columnconfigure(1, weight=1)
+        minus = self._segment("\u2212", fonts.h2, value > lo + 1e-6, lambda: on_step(-1), pady)
+        minus.grid(row=0, column=0, sticky="nsew", padx=(line, 0), pady=line)
+        self.readout = tk.Label(self, text=i18n.percent(str(round(value * 100))), font=fonts.bold,
+                                bg=theme.SIDEBAR_BG, fg=theme.BLANCO, pady=pady)
+        self.readout.grid(row=0, column=1, sticky="nsew", padx=line, pady=line)
+        plus = self._segment("+", fonts.h2, value < hi - 1e-6, lambda: on_step(1), pady)
+        plus.grid(row=0, column=2, sticky="nsew", padx=(0, line), pady=line)
+        if abs(value - 1.0) > 1e-6:   # el centro solo actúa si hay algo que restablecer
+            self.readout.configure(cursor="hand2")
+            self.readout.bind("<Enter>", lambda e: self.readout.configure(fg=theme.AGUA), add="+")
+            self.readout.bind("<Leave>", lambda e: self.readout.configure(fg=theme.BLANCO), add="+")
+            self.readout.bind("<ButtonRelease-1>", lambda e: on_reset())
+        for w in (minus, plus, self.readout):
+            w.bind("<Enter>", lambda e: self._hover(True), add="+")
+            w.bind("<Leave>", lambda e: self._hover(False), add="+")
+
+    def _hover(self, inside: bool) -> None:
+        if self._hover_cb:
+            self._hover_cb(inside)
+
+    def _segment(self, glyph: str, font, enabled: bool, command: Callable[[], None], pady: int) -> tk.Label:
+        seg = tk.Label(self, text=glyph, font=font, width=3, pady=max(0, pady - 2),
+                       bg=theme.ZOOM_BTN if enabled else theme.SIDEBAR_BG,
+                       fg=theme.BLANCO if enabled else theme.ZOOM_OFF)
+        if not enabled:
+            return seg
+        seg.configure(cursor="hand2")
+
+        def paint(bg: str, fg: str = theme.BLANCO) -> None:
+            seg.configure(bg=bg, fg=fg)
+
+        def release(e) -> None:
+            inside = 0 <= e.x < seg.winfo_width() and 0 <= e.y < seg.winfo_height()
+            paint(theme.ZOOM_HOVER if inside else theme.ZOOM_BTN)
+            if inside:
+                command()
+
+        seg.bind("<Enter>", lambda e: paint(theme.ZOOM_HOVER), add="+")
+        seg.bind("<Leave>", lambda e: paint(theme.ZOOM_BTN), add="+")
+        seg.bind("<ButtonPress-1>", lambda e: paint(theme.LIMA, theme.PETROLEO))
+        seg.bind("<ButtonRelease-1>", release)
+        return seg
+
+
+def bind_wheel(canvas: tk.Canvas) -> None:
+    """Rueda del ratón para un Canvas con contenido desplazable. Funciona también con el
+    puntero sobre los widgets que hay dentro, y se desengancha sola al salir o destruirse."""
+    def on_wheel(ev) -> None:
+        if canvas.winfo_exists() and canvas.yview() != (0.0, 1.0):
+            canvas.yview_scroll(int(-ev.delta / 120), "units")
+
+    def pointer_inside() -> bool:
+        try:
+            w = canvas.winfo_containing(*canvas.winfo_pointerxy())
+        except (tk.TclError, KeyError):
+            return False
+        return w is not None and (str(w) + ".").startswith(str(canvas) + ".")
+
+    def leave(_e=None) -> None:
+        if not pointer_inside():
+            canvas.unbind_all("<MouseWheel>")
+
+    def destroyed(e) -> None:
+        if e.widget is canvas:
+            try:
+                canvas.unbind_all("<MouseWheel>")
+            except tk.TclError:
+                pass
+
+    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", on_wheel), add="+")
+    canvas.bind("<Leave>", leave, add="+")
+    canvas.bind("<Destroy>", destroyed, add="+")
 
 
 class ScrollTree(ttk.Frame):

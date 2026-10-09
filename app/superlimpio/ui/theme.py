@@ -39,6 +39,15 @@ DANGER = "#d64545"
 DANGER_DARK = "#b83636"
 SELECT = "#cdf2ff"          # fila seleccionada, azul agua claro
 
+# Control de zoom de la barra lateral: segmentos verdes sobre el fondo petróleo
+ZOOM_BORDER = BOSQUE
+ZOOM_BTN = "#06663a"        # entre PETROLEO y BOSQUE
+ZOOM_HOVER = ESMERALDA
+ZOOM_OFF = "#4f8f76"        # signo apagado al llegar al límite
+
+# Importancia para el sistema (criticality.Level): color del texto en tablas y avisos
+LEVEL_COLORS = {0: MUTED, 1: "#b36b00", 2: INFO_DARK, 3: DANGER_DARK}
+
 ROW_HUGE = "#fde3e3"        # >= 10 GB
 ROW_BIG = "#fff0da"         # >= 1 GB
 ROW_MID = "#fffaeb"         # >= 100 MB
@@ -181,3 +190,5 @@ def configure_size_tags(tree: ttk.Treeview) -> None:
     tree.tag_configure("mid", background=ROW_MID)
     tree.tag_configure("muted", foreground=MUTED)
     tree.tag_configure("warn", foreground=DANGER)
+    for level in (1, 2, 3):
+        tree.tag_configure(f"lvl{level}", foreground=LEVEL_COLORS[level])

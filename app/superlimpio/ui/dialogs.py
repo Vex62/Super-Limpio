@@ -14,7 +14,7 @@ from tkinter import ttk
 
 from .. import i18n
 from ..safety import Risk, confirm_word
-from . import theme
+from . import theme, winframe
 
 
 class ConfirmDialog(tk.Toplevel):
@@ -41,6 +41,10 @@ class ConfirmDialog(tk.Toplevel):
         tk.Label(htxt, text=i18n.t("dialog.risk_level", label=risk.label), font=fonts.small, bg=soft, fg=fg,
                  anchor="w").pack(fill="x")
 
+        # Los botones se colocan antes que el cuerpo: si el diálogo no cabe entero en la
+        # pantalla, lo que encoge es la lista de detalles y «Cancelar» sigue a la vista.
+        btns = tk.Frame(self, bg=theme.CARD)
+        btns.pack(side="bottom", fill="x", padx=pad, pady=pad)
         body = tk.Frame(self, bg=theme.CARD)
         body.pack(fill="both", expand=True, padx=pad, pady=(int(12 * sf), 0))
         tk.Label(body, text=message, font=fonts.base, bg=theme.CARD, fg=theme.TEXT, justify="left",
@@ -77,8 +81,7 @@ class ConfirmDialog(tk.Toplevel):
             ent.pack(side="left", padx=8)
             self.word.trace_add("write", lambda *_: self._update())
 
-        btns = tk.Frame(self, bg=theme.CARD)
-        btns.pack(fill="x", padx=pad, pady=pad)
+        btns.lift()   # tras el cuerpo en el orden de tabulación
         self.cancel_btn = ttk.Button(btns, text=i18n.t("common.cancel"), command=self._cancel)
         self.cancel_btn.pack(side="right")
         style = "Danger.TButton" if risk >= Risk.ALTO else "Accent.TButton"
@@ -92,11 +95,7 @@ class ConfirmDialog(tk.Toplevel):
         self._update()
         self.cancel_btn.focus_set()
 
-        self.update_idletasks()
-        pw = parent.winfo_toplevel()
-        x = pw.winfo_rootx() + (pw.winfo_width() - self.winfo_reqwidth()) // 2
-        y = pw.winfo_rooty() + (pw.winfo_height() - self.winfo_reqheight()) // 3
-        self.geometry(f"+{max(0, x)}+{max(0, y)}")
+        winframe.place_dialog(self, parent)
         self.grab_set()
 
     def _update(self) -> None:

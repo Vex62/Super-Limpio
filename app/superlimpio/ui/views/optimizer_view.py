@@ -49,6 +49,7 @@ class OptimizerView(View):
         self._an_stop: threading.Event | None = None
         self._report = None
         self._an_closing = False
+        self._applying = False
         self._findings: dict[str, optimizer.Finding] = {}
 
         bar = self.toolbar(tab)
@@ -99,7 +100,8 @@ class OptimizerView(View):
         self.advice = self.note(adv, "")
         self.advice.pack(side="left", fill="x", expand=True)
 
-        pcols = [("name", i18n.t("memory.col.program"), 220, "w"), ("count", i18n.t("memory.col.processes"), 75, "e"),
+        pcols = [("name", i18n.t("memory.col.program"), 220, "w"), ("level", i18n.t("memory.col.level"), 105, "w"),
+                 ("count", i18n.t("memory.col.processes"), 75, "e"),
                  ("private", i18n.t("memory.col.private"), 115, "e"), ("ws", i18n.t("memory.col.ws"), 105, "e"),
                  ("growth", i18n.t("opt.an.col.growth"), 105, "e"), ("cpu", i18n.t("opt.an.col.cpu_avg"), 85, "e"),
                  ("peak", i18n.t("opt.an.col.cpu_peak"), 85, "e"), ("handles", i18n.t("opt.an.col.handles"), 115, "e"),
@@ -114,21 +116,27 @@ class OptimizerView(View):
         self.an_force = tk.BooleanVar(value=False)
         ttk.Checkbutton(closebar, text=i18n.t("opt.eff.opt.force"), variable=self.an_force,
                         style="Bg.TCheckbutton").pack(side="right", padx=self.px(12))
-        ttk.Label(closebar, text=i18n.t("opt.an.close_hint"), style="Muted.TLabel").pack(side="left")
+        # Al seleccionar un programa, aquí se explica qué es y qué pasa si se cierra.
+        self.prog_note = self.note(closebar, i18n.t("opt.an.close_hint"))
+        self.prog_note.pack(side="left", fill="x", expand=True)
         pbox = ScrollTree(bottom, pcols, sf=self.sf)
         pbox.pack(fill="both", expand=True)
+        pbox.tree.bind("<<TreeviewSelect>>", lambda e: self._show_program())
         self.prog_tbl = SortableTable(
             pbox.tree,
-            render=lambda u: (u.name, fmt_count(u.count),
+            render=lambda u: (u.name + (f"  ·  {i18n.t('memory.this_app')}" if u.own else ""),
+                              i18n.t(f"crit.level.{u.level}") if u.level else "", fmt_count(u.count),
                               fmt_size(u.private) if u.accessible else i18n.t("memory.no_access"),
                               fmt_size(u.working_set) if u.accessible else "", _signed(u.growth), _cpu(u.cpu_avg),
                               _cpu(u.cpu_peak), fmt_count(u.handles) if u.handles else "",
                               i18n.t("opt.eff.window.yes") if u.has_window else i18n.t("opt.eff.window.no")),
             sort_keys={"name": lambda u: u.name.lower(), "count": lambda u: u.count,
+                       "level": lambda u: (u.level, u.private),
                        "private": lambda u: u.private, "ws": lambda u: u.working_set,
                        "growth": lambda u: u.growth, "cpu": lambda u: u.cpu_avg, "peak": lambda u: u.cpu_peak,
                        "handles": lambda u: u.handles},
-            default_sort="private", tag_fn=lambda u: () if u.accessible else ("muted",),
+            default_sort="private",
+            tag_fn=lambda u: (f"lvl{u.level}",) if u.level else (() if u.accessible else ("muted",)),
             key_fn=lambda u: u.key)
 
         split.add(top, weight=1)
@@ -201,6 +209,22 @@ class OptimizerView(View):
         self.an_close_btn.state(["!disabled"])
         self.status(i18n.t("opt.an.status", n=len(report.findings), p=len(report.programs)))
 
+    def pending(self) -> str:
+        return i18n.t("app.pending.optimize") if (self._an_closing or self._applying) else ""
+
+    def _show_program(self) -> None:
+        """Qué es el programa seleccionado y qué pasa si se cierra."""
+        rows = self.prog_tbl.selected()
+        if not rows:
+            self.prog_note.configure(text=i18n.t("opt.an.close_hint"), fg=theme.MUTED)
+            return
+        u = max(rows, key=lambda r: r.level)   # con varios, manda el más delicado
+        head = i18n.t("memory.detail_title", name=u.name, level=i18n.t(f"crit.level.{u.level}"))
+        if len(rows) > 1:
+            head = i18n.t("memory.detail_multi", n=len(rows)) + head
+        self.prog_note.configure(text=f"{head}. {u.what} {u.risk}",
+                                 fg=theme.LEVEL_COLORS[u.level] if u.level else theme.TEXT)
+
     def close_selected(self) -> None:
         """Cierra los programas marcados en la tabla del resultado, previa confirmación."""
         if self._an_closing or self._report is None:
@@ -209,10 +233,18 @@ class OptimizerView(View):
         if not rows:
             self.status(i18n.t("common.nothing_selected"))
             return
+        # La propia aplicación no se finaliza como las demás: se cierra con orden, al final.
+        close_self = any(u.own for u in rows)
+        rows = [u for u in rows if not u.own]
+        if not rows:
+            self.app.request_close(self)
+            return
         plan, blocked = optimizer.selection_plan(rows, self._report.procs, winapi.list_windows())
         if not plan.candidates:
             dialogs.error(self, i18n.t("common.protected"),
                           i18n.t("opt.an.close.blocked_body", items="\n".join(blocked[:12])))
+            if close_self:
+                self.app.request_close(self)
             return
         opts = optimizer.Options(force=self.an_force.get())
         details = optimizer.describe_plan(plan, opts)
@@ -226,10 +258,11 @@ class OptimizerView(View):
         self._an_closing = True
         self.an_close_btn.state(["disabled"])
         self.status(i18n.t("opt.an.close.closing"))
-        self.app.bg.run(lambda: optimizer.apply_plan(plan, opts), on_done=lambda res: self._an_closed(plan, res),
+        self.app.bg.run(lambda: optimizer.apply_plan(plan, opts),
+                        on_done=lambda res: self._an_closed(plan, res, close_self),
                         on_error=lambda e: self._an_closed(plan, None))
 
-    def _an_closed(self, plan, res) -> None:
+    def _an_closed(self, plan, res, close_self: bool = False) -> None:
         self._an_closing = False
         if not self.winfo_exists():
             return
@@ -249,6 +282,8 @@ class OptimizerView(View):
             lines.append(i18n.t("opt.eff.result.failures", items="\n".join(res.failures[:12])))
         self.status(lines[0])
         (dialogs.error if res.failures else dialogs.info)(self, i18n.t("opt.an.close.title"), "\n\n".join(lines))
+        if close_self:
+            self.app.request_close(self)
 
     def _system_summary(self, report) -> str:
         parts = []
@@ -532,14 +567,14 @@ class OptimizerView(View):
                                optimizer.describe_plan(plan, opts), risk=optimizer.plan_risk(plan, opts),
                                ok_text=i18n.t("opt.eff.confirm.ok")):
             return
-        self._eff_busy = True
+        self._eff_busy = self._applying = True
         self._busy(True)
         self.status(i18n.t("opt.eff.applying"))
         self.app.bg.run(lambda: optimizer.apply_plan(plan, opts), on_done=self._applied,
                         on_error=lambda e: self._applied(None))
 
     def _applied(self, res) -> None:
-        self._eff_busy = False
+        self._eff_busy = self._applying = False
         if not self.winfo_exists():
             return
         self._busy(False)
