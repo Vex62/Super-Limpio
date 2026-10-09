@@ -10,7 +10,7 @@ from tkinter import ttk
 from .. import APP_NAME, __version__, config, i18n, winapi
 from ..safety import Risk, log_action
 from ..util import IS_WINDOWS
-from . import dialogs, theme
+from . import dialogs, theme, winframe
 from .widgets import ASSETS_DIR, Background, make_icons
 
 # (clave de navegación, clase de vista, clave i18n de la etiqueta)
@@ -94,11 +94,14 @@ class App:
         self.style = theme.apply_style(self.root, self.fonts, self.sf)
         self.icons = make_icons(self.root, self.sf)
 
-        self.root.title(f"{APP_NAME} {__version__}" + (i18n.t("app.admin_suffix") if self.is_admin else ""))
+        # El nombre y la versión ya salen en la barra lateral: el título se deja limpio.
+        self.root.title(APP_NAME)
         try:
             self.root.iconphoto(True, self.icons["app"])
         except tk.TclError:
             pass
+        # Barra de título y borde con los colores de la marca (Windows 11).
+        winframe.apply(self.root, caption=theme.SIDEBAR_BG, text=theme.BLANCO, border=theme.ACCENT)
 
         if first:
             w, h = int(1280 * self.sf), int(800 * self.sf)
@@ -193,12 +196,12 @@ class App:
                  bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x")
         row = tk.Frame(parent, bg=theme.SIDEBAR_BG)
         row.pack(fill="x", pady=(2, 0))
-        ttk.Button(row, text="A−", width=3,
+        ttk.Button(row, text="−", width=3,
                    command=lambda: self._change_zoom(-config.SCALE_STEP)).pack(side="left")
         self.zoom_lbl = tk.Label(row, text=f"{round(self.zoom * 100)} %", font=self.fonts.small,
                                  fg=theme.SIDEBAR_FG, bg=theme.SIDEBAR_BG, width=6)
         self.zoom_lbl.pack(side="left", padx=4)
-        ttk.Button(row, text="A+", width=3,
+        ttk.Button(row, text="+", width=3,
                    command=lambda: self._change_zoom(config.SCALE_STEP)).pack(side="left")
 
     def _on_language(self, _e=None) -> None:
