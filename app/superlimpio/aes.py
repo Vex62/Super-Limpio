@@ -1,19 +1,20 @@
-"""AES-256 con la criptografía del propio Windows (CNG, bcrypt.dll).
+"""AES-256 con la criptografía del propio sistema operativo.
 
-Super Limpio no lleva una implementación propia del cifrado: usa la del sistema,
-que es la que está auditada y acelerada por hardware. Solo se necesita para poner
-contraseña a los archivos comprimidos, así que fuera de Windows simplemente no
-está disponible (`AVAILABLE` es False).
+Super Limpio no lleva una implementación propia del cifrado: usa la del sistema, que es
+la que está auditada y acelerada por hardware. En Windows es CNG (bcrypt.dll); en Linux
+y otros Unix, OpenSSL (libcrypto), que traen todas las distribuciones. Solo se necesita
+para poner contraseña a los archivos comprimidos; si en un equipo no hubiera ninguna de
+las dos, `AVAILABLE` es False y esa opción se rechaza.
 """
 
 from __future__ import annotations
 
 import sys
 
-AVAILABLE = sys.platform == "win32"
+_WINDOWS = sys.platform == "win32"
 BLOCK = 16
 
-if AVAILABLE:
+if _WINDOWS:
     import ctypes
     from ctypes import wintypes
 
@@ -44,17 +45,20 @@ class AesError(OSError):
     pass
 
 
-class Aes:
-    """Clave AES en modo ECB o CBC. En CBC el vector se va encadenando entre llamadas,
-    así que se puede cifrar un flujo por trozos (siempre múltiplos de 16 bytes)."""
+def _check_args(key: bytes, mode: str, iv: bytes | None) -> None:
+    if len(key) not in (16, 24, 32):
+        raise ValueError("invalid AES key size")
+    if mode not in ("ECB", "CBC"):
+        raise ValueError("unknown AES mode")
+    if mode == "CBC" and (iv is None or len(iv) != BLOCK):
+        raise ValueError("CBC needs a 16-byte IV")
+
+
+class _CngAes:
+    """AES de Windows (CNG)."""
 
     def __init__(self, key: bytes, mode: str = "ECB", iv: bytes | None = None):
-        if not AVAILABLE:
-            raise AesError("AES is only available on Windows")
-        if len(key) not in (16, 24, 32):
-            raise ValueError("invalid AES key size")
-        if mode == "CBC" and (iv is None or len(iv) != BLOCK):
-            raise ValueError("CBC needs a 16-byte IV")
+        _check_args(key, mode, iv)
         self._alg = ctypes.c_void_p()
         self._key = ctypes.c_void_p()
         self._check(_bcrypt.BCryptOpenAlgorithmProvider(ctypes.byref(self._alg), "AES", None, 0))
@@ -99,6 +103,98 @@ class Aes:
             self.close()
         except Exception:  # noqa: BLE001
             pass
+
+
+def _load_openssl():
+    """libcrypto de OpenSSL, o None si este equipo no la tiene."""
+    import ctypes
+    import ctypes.util
+
+    for name in (ctypes.util.find_library("crypto"), "libcrypto.so.3", "libcrypto.so.1.1", "libcrypto.dylib"):
+        if not name:
+            continue
+        try:
+            lib = ctypes.CDLL(name)
+            lib.EVP_CIPHER_CTX_new.restype = ctypes.c_void_p
+            lib.EVP_CIPHER_CTX_free.argtypes = [ctypes.c_void_p]
+            lib.EVP_CIPHER_CTX_set_padding.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            lib.EVP_CipherInit_ex.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                                              ctypes.c_char_p, ctypes.c_char_p, ctypes.c_int]
+            lib.EVP_CipherUpdate.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(ctypes.c_int),
+                                             ctypes.c_char_p, ctypes.c_int]
+            for bits in (128, 192, 256):
+                for mode in ("ecb", "cbc"):
+                    getattr(lib, f"EVP_aes_{bits}_{mode}").restype = ctypes.c_void_p
+            return lib
+        except (OSError, AttributeError):
+            continue
+    return None
+
+
+_openssl = None if _WINDOWS else _load_openssl()
+
+
+class _OpenSslAes:
+    """AES de OpenSSL (interfaz EVP), sin relleno: los datos van siempre en bloques de 16."""
+
+    def __init__(self, key: bytes, mode: str = "ECB", iv: bytes | None = None):
+        _check_args(key, mode, iv)
+        self._key, self._mode, self._iv = key, mode.lower(), iv
+        self._ctx: dict[int, int] = {}   # 1 = cifrar, 0 = descifrar; cada sentido lleva su encadenado
+
+    def _context(self, encrypt: int):
+        import ctypes
+        ctx = self._ctx.get(encrypt)
+        if ctx is None:
+            ctx = _openssl.EVP_CIPHER_CTX_new()
+            cipher = getattr(_openssl, f"EVP_aes_{len(self._key) * 8}_{self._mode}")()
+            if not ctx or not cipher or _openssl.EVP_CipherInit_ex(
+                    ctypes.c_void_p(ctx), ctypes.c_void_p(cipher), None, self._key, self._iv, encrypt) != 1:
+                raise AesError("OpenSSL could not initialise AES")
+            _openssl.EVP_CIPHER_CTX_set_padding(ctypes.c_void_p(ctx), 0)
+            self._ctx[encrypt] = ctx
+        return ctypes.c_void_p(ctx)
+
+    def _run(self, encrypt: int, data: bytes) -> bytes:
+        import ctypes
+        if len(data) % BLOCK:
+            raise ValueError("data must be a multiple of 16 bytes")
+        if not data:
+            return b""
+        out = ctypes.create_string_buffer(len(data) + BLOCK)
+        done = ctypes.c_int(0)
+        if _openssl.EVP_CipherUpdate(self._context(encrypt), out, ctypes.byref(done), data, len(data)) != 1:
+            raise AesError("OpenSSL AES error")
+        return out.raw[:done.value]
+
+    def encrypt(self, data: bytes) -> bytes:
+        return self._run(1, data)
+
+    def decrypt(self, data: bytes) -> bytes:
+        return self._run(0, data)
+
+    def close(self) -> None:
+        import ctypes
+        for ctx in getattr(self, "_ctx", {}).values():
+            _openssl.EVP_CIPHER_CTX_free(ctypes.c_void_p(ctx))
+        self._ctx = {}
+
+    def __del__(self):  # noqa: D105
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class _NoAes:
+    def __init__(self, *_args, **_kw):
+        raise AesError("this system has no AES provider (CNG or OpenSSL)")
+
+
+# Clave AES en modo ECB o CBC. En CBC el vector se va encadenando entre llamadas, así que
+# se puede cifrar un flujo por trozos (siempre múltiplos de 16 bytes).
+Aes = _CngAes if _WINDOWS else (_OpenSslAes if _openssl is not None else _NoAes)
+AVAILABLE = Aes is not _NoAes
 
 
 class Ctr:

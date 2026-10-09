@@ -390,11 +390,15 @@ class OptimizerView(View):
         self.opt_trim = tk.BooleanVar(value=False)
         self.opt_boost = tk.BooleanVar(value=False)
         self.opt_force = tk.BooleanVar(value=False)
-        ttk.Checkbutton(opts, text=i18n.t("opt.eff.opt.trim"), variable=self.opt_trim,
-                        style="Bg.TCheckbutton").pack(side="left")
+        # Lo que el sistema no sabe hacer (ver plat.capabilities) no se ofrece.
+        self._caps = plat.capabilities()
+        if self._caps["trim"]:
+            ttk.Checkbutton(opts, text=i18n.t("opt.eff.opt.trim"), variable=self.opt_trim,
+                            style="Bg.TCheckbutton").pack(side="left", padx=(0, self.px(14)))
         self.boost_chk = ttk.Checkbutton(opts, text=i18n.t("opt.eff.opt.boost"), variable=self.opt_boost,
                                          style="Bg.TCheckbutton")
-        self.boost_chk.pack(side="left", padx=self.px(14))
+        if self._caps["boost"]:
+            self.boost_chk.pack(side="left", padx=(0, self.px(14)))
         ttk.Checkbutton(opts, text=i18n.t("opt.eff.opt.force"), variable=self.opt_force,
                         style="Bg.TCheckbutton").pack(side="left")
 
@@ -453,6 +457,10 @@ class OptimizerView(View):
         plan = self.plan = optimizer.build_plan(procs, windows, self.target_key, self.profile.get(), cpu)
         session = optimizer.SESSION
         for c in plan.candidates:
+            if c.suggested == Action.THROTTLE and not self._caps["throttle_undo"]:
+                # Aquí ralentizar no se puede deshacer: no se propone, aunque se puede elegir a mano.
+                c.suggested = c.action = Action.KEEP
+                c.reason = "opt.reason.no_undo"
             if all(session.has(m.pid, m.create_time) for m in c.members):
                 c.suggested = c.action = Action.KEEP   # ya está ralentizado en esta sesión
                 c.reason = "opt.reason.throttled"
@@ -548,8 +556,9 @@ class OptimizerView(View):
         plan = self.plan
         if plan is None or self._eff_busy:
             return
-        opts = optimizer.Options(trim=self.opt_trim.get(), force=self.opt_force.get(),
-                                 boost_target=self.opt_boost.get() and bool(plan.target_members))
+        opts = optimizer.Options(trim=self.opt_trim.get() and self._caps["trim"], force=self.opt_force.get(),
+                                 boost_target=(self.opt_boost.get() and self._caps["boost"]
+                                               and bool(plan.target_members)))
         close, slow = plan.chosen(Action.CLOSE), plan.chosen(Action.THROTTLE)
         if not (close or slow or opts.boost_target):
             dialogs.info(self, i18n.t("opt.eff.confirm.title"), i18n.t("opt.eff.nothing"))
@@ -557,6 +566,8 @@ class OptimizerView(View):
         parts = []
         if slow:
             parts.append(i18n.t("opt.eff.confirm.throttle"))
+            if not self._caps["throttle_undo"]:
+                parts.append(i18n.t("opt.eff.confirm.no_undo"))
             if opts.trim:
                 parts.append(i18n.t("opt.eff.confirm.trim"))
         if close:

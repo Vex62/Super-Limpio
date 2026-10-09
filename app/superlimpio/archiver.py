@@ -782,7 +782,7 @@ def compress(collection: Collection, opt: Options, progress=None, should_stop=No
     if opt.fmt not in FORMATS or opt.level not in _LEVEL:
         raise ValueError("unknown format or level")
     if opt.password and not aes.AVAILABLE:
-        raise ArchiveError(i18n.t("common.windows_only"))
+        raise ArchiveError(i18n.t("zip.err.no_aes"))
     if opt.password and not password_ok(opt.fmt, opt.password):
         raise ArchiveError(i18n.t("zip.err.ascii_password"))
     dest = os.path.abspath(opt.dest)

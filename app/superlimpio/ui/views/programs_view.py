@@ -189,6 +189,10 @@ class ProgramsView(View):
             return
         p: programs.Program = sel[0]["p"]
         plan = programs.build_uninstall_plan(p)
+        if not plan.exe:   # esta plataforma no tiene una vía oficial para quitarlo
+            dialogs.info(self, i18n.t("programs.uninstall").rstrip("…"),
+                         "\n\n".join(plan.warnings + ([plan.display] if plan.display else [])))
+            return
         risk = Risk.CRITICO if plan.critical else Risk.ALTO
         details = i18n.t("programs.uninstall.detail", name=p.name, version=p.version,
                          publisher=p.publisher or "—", size=fmt_size(p.best_size), cmd=plan.display)

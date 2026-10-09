@@ -76,22 +76,33 @@ FALLBACK_GLYPHS = {
 class Fonts:
     def __init__(self, root: tk.Misc, zoom: float = 1.0):
         fams = set(tkfont.families(root))
-        base = "Segoe UI" if "Segoe UI" in fams else "TkDefaultFont"
-        semi = "Segoe UI Semibold" if "Segoe UI Semibold" in fams else base
-        mono = "Cascadia Mono" if "Cascadia Mono" in fams else ("Consolas" if "Consolas" in fams else "TkFixedFont")
+
+        def pick(candidates: tuple[str, ...], default: str) -> str:
+            return next((f for f in candidates if f in fams), default)
+
+        # La primera de cada lista es la de Windows; las demás, las habituales en Linux y macOS.
+        base = pick(("Segoe UI", "Noto Sans", "Ubuntu", "Cantarell", "DejaVu Sans", "Liberation Sans",
+                     "Helvetica Neue", "Helvetica"), "TkDefaultFont")
+        semi = pick(("Segoe UI Semibold", "Noto Sans Medium", "Ubuntu Medium", "DejaVu Sans"), base)
+        mono = pick(("Cascadia Mono", "Consolas", "DejaVu Sans Mono", "Noto Sans Mono", "Ubuntu Mono",
+                     "Liberation Mono", "Menlo"), "TkFixedFont")
+        self._semi_is_bold = semi == base   # sin variante seminegrita: se usa la negrita de la fuente
         self.icon_family = next((f for f in ("Segoe Fluent Icons", "Segoe MDL2 Assets") if f in fams), None)
 
         def pt(size: int) -> int:
             return max(7, round(size * zoom))
 
+        def strong(size: int) -> tuple:
+            return (semi, pt(size), "bold") if self._semi_is_bold else (semi, pt(size))
+
         self.base = (base, pt(10))
         self.small = (base, pt(9))
-        self.bold = (semi, pt(10))
-        self.h1 = (semi, pt(17))
-        self.h2 = (semi, pt(12))
-        self.big = (semi, pt(22))
+        self.bold = strong(10)
+        self.h1 = strong(17)
+        self.h2 = strong(12)
+        self.big = strong(22)
         self.mono = (mono, pt(9))
-        self.brand = (semi, pt(14))
+        self.brand = strong(14)
         self.icon = (self.icon_family, pt(13)) if self.icon_family else (base, pt(12))
 
     def glyph(self, name: str) -> str:

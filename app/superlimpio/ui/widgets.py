@@ -190,12 +190,25 @@ class ZoomStepper(tk.Frame):
         return seg
 
 
+_WHEEL_EVENTS = ("<MouseWheel>", "<Button-4>", "<Button-5>")
+
+
 def bind_wheel(canvas: tk.Canvas) -> None:
     """Rueda del ratón para un Canvas con contenido desplazable. Funciona también con el
     puntero sobre los widgets que hay dentro, y se desengancha sola al salir o destruirse."""
     def on_wheel(ev) -> None:
         if canvas.winfo_exists() and canvas.yview() != (0.0, 1.0):
-            canvas.yview_scroll(int(-ev.delta / 120), "units")
+            # En Linux (X11) la rueda no llega como <MouseWheel> sino como los botones 4 y 5.
+            step = -1 if ev.num == 4 else 1 if ev.num == 5 else int(-ev.delta / 120)
+            canvas.yview_scroll(step, "units")
+
+    def hook(_e=None) -> None:
+        for seq in _WHEEL_EVENTS:
+            canvas.bind_all(seq, on_wheel)
+
+    def unhook() -> None:
+        for seq in _WHEEL_EVENTS:
+            canvas.unbind_all(seq)
 
     def pointer_inside() -> bool:
         try:
@@ -206,16 +219,16 @@ def bind_wheel(canvas: tk.Canvas) -> None:
 
     def leave(_e=None) -> None:
         if not pointer_inside():
-            canvas.unbind_all("<MouseWheel>")
+            unhook()
 
     def destroyed(e) -> None:
         if e.widget is canvas:
             try:
-                canvas.unbind_all("<MouseWheel>")
+                unhook()
             except tk.TclError:
                 pass
 
-    canvas.bind("<Enter>", lambda e: canvas.bind_all("<MouseWheel>", on_wheel), add="+")
+    canvas.bind("<Enter>", hook, add="+")
     canvas.bind("<Leave>", leave, add="+")
     canvas.bind("<Destroy>", destroyed, add="+")
 

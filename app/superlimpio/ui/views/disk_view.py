@@ -43,7 +43,9 @@ class DiskView(View):
         drives = plat.list_drives()
         self.path_var = tk.StringVar(value=drives[0] if drives else os.path.expanduser("~"))
         ttk.Label(bar, text=i18n.t("disk.location")).pack(side="left", padx=(0, self.px(6)))
-        self.drive_cb = ttk.Combobox(bar, values=drives, width=6, state="readonly")
+        # En Windows son letras («C:\»); en Linux, puntos de montaje, que son más largos.
+        self.drive_cb = ttk.Combobox(bar, values=drives, state="readonly",
+                                     width=max(6, min(22, max((len(d) for d in drives), default=6) + 1)))
         if drives:
             self.drive_cb.set(drives[0])
         self.drive_cb.bind("<<ComboboxSelected>>", lambda e: self.path_var.set(self.drive_cb.get()))

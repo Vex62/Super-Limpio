@@ -1,3 +1,5 @@
 * text=auto
 # cmd.exe necesita finales de línea de Windows en los .bat
 *.bat text eol=crlf
+# Los guiones de Linux necesitan finales de línea de Unix
+*.sh text eol=lf

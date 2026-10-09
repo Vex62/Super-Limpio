@@ -76,6 +76,6 @@ class UninstallPlan:
 
 def build_uninstall_plan(p: Program, command=None) -> UninstallPlan:
     """Qué se va a ejecutar para desinstalar. «command» permite fijar la plataforma (tests)."""
-    exe, params, warnings, critical = (command or plat.uninstall_command)(p)
-    display = f'"{exe}" {params}'.strip() if exe else ""
+    exe, params, warnings, critical, *shown = (command or plat.uninstall_command)(p)
+    display = shown[0] if shown else (f'"{exe}" {params}'.strip() if exe else "")
     return UninstallPlan(exe, params, display, warnings, critical)

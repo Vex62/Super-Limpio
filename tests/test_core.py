@@ -23,6 +23,11 @@ from superlimpio.plat import windows as _windows  # noqa: E402
 plat.set_knowledge("windows")
 
 
+def _aes_available():
+    from superlimpio import aes
+    return aes.AVAILABLE
+
+
 def _write(path, size):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "wb") as fh:
@@ -647,7 +652,7 @@ class ArchiverTests(unittest.TestCase):
                 self.pack("zip", "contraseña")
             self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out.zip.part")))
 
-    @unittest.skipUnless(sys.platform == "win32", "el cifrado usa el AES de Windows")
+    @unittest.skipUnless(_aes_available(), "este equipo no tiene AES del sistema (CNG u OpenSSL)")
     def test_aes_matches_the_official_vector(self):
         key = bytes(range(32))
         out = self.aes.Aes(key).encrypt(bytes.fromhex("00112233445566778899aabbccddeeff"))
@@ -656,7 +661,7 @@ class ArchiverTests(unittest.TestCase):
         msg = bytes(range(256)) * 41
         self.assertEqual(b.process(a.process(msg[:5]) + a.process(msg[5:])), msg)
 
-    @unittest.skipUnless(sys.platform == "win32", "el cifrado usa el AES de Windows")
+    @unittest.skipUnless(_aes_available(), "este equipo no tiene AES del sistema (CNG u OpenSSL)")
     def test_encrypted_archives_hide_content_and_verify(self):
         for fmt, pw in (("7z", "Señor ñandú ✓"), ("zip", "Clave-123 !")):
             res = self.pack(fmt, pw)
@@ -873,6 +878,260 @@ class CriticalityTests(unittest.TestCase):
         self.assertEqual(hogs["game.exe"].advice, i18n.t("opt.find.hog_advice"))
         self.assertTrue(any(f.title == i18n.t("opt.find.system_share", size=fmt_size(6 * gb + 100 * 1024 ** 2),
                                               pct=i18n.percent("38")) for f in rep.findings))
+
+
+class SourceTests(unittest.TestCase):
+    def test_every_module_compiles(self):
+        # La interfaz no se importa en estas pruebas: al menos, que todo su código sea válido.
+        import glob
+        base = os.path.join(os.path.dirname(__file__), "..")
+        files = (glob.glob(os.path.join(base, "app", "**", "*.py"), recursive=True)
+                 + glob.glob(os.path.join(base, "tools", "*.py")))
+        self.assertGreater(len(files), 40)
+        for path in files:
+            with open(path, encoding="utf-8") as fh:
+                compile(fh.read(), path, "exec")
+
+
+class LinuxKnowledgeTests(unittest.TestCase):
+    """Las reglas de Linux son lógica pura: se prueban desde cualquier sistema."""
+
+    ENV = {"home": "/home/ana", "users": "/home", "app_root": "/opt/apps/SuperLimpio", "mounts": ["/mnt/datos"]}
+    SYS = ("/usr/lib/systemd", "/usr/libexec", "/usr/sbin")
+
+    def setUp(self):
+        from superlimpio import criticality, optimizer
+        self.c, self.o = criticality, optimizer
+        plat.set_knowledge("linux")
+        self.addCleanup(plat.set_knowledge, "windows")
+
+    def proc(self, name, path="", **kw):
+        kw.setdefault("self_pid", 999999)
+        return self.c.assess_process(name, path, windir=self.SYS, **kw)
+
+    def test_processes_are_ranked_by_what_breaks(self):
+        L = self.c.Level
+        self.assertEqual(self.proc("systemd", "/usr/lib/systemd/systemd", pid=1).level, L.VITAL)
+        self.assertEqual(self.proc("gnome-shell", "/usr/bin/gnome-shell").level, L.VITAL)
+        self.assertEqual(self.proc("Xorg", "/usr/lib/xorg/Xorg", accessible=False).level, L.VITAL)
+        self.assertEqual(self.proc("NetworkManager", "", accessible=False, service=True).level, L.IMPORTANT)
+        self.assertEqual(self.proc("pipewire", "/usr/bin/pipewire").level, L.CAUTION)
+        self.assertEqual(self.proc("cupsd", "", accessible=False, service=True).level, L.IMPORTANT)
+        self.assertEqual(self.proc("mysqld", "", accessible=False, service=True).level, L.IMPORTANT)
+        self.assertEqual(self.proc("syncthing", "/usr/bin/syncthing", service=True).level, L.CAUTION)
+        self.assertEqual(self.proc("gvfsd", "/usr/libexec/gvfsd").level, L.CAUTION)
+        self.assertEqual(self.proc("firefox", "/usr/lib/firefox/firefox").level, L.NORMAL)
+        self.assertEqual(self.proc("code", "/usr/share/code/code").level, L.NORMAL)
+        for name in plat.know.PROTECTED_PROCESSES:   # nada de lo que no se puede finalizar sale como inocuo
+            self.assertGreaterEqual(self.proc(name).level, L.IMPORTANT, name)
+        for name in plat.know.SENSITIVE_PROCESSES:
+            self.assertGreaterEqual(self.proc(name).level, L.CAUTION, name)
+        for key in {v[i] for v in plat.know.PROCESSES.values() for i in (1, 2)}:
+            self.assertIn(key, i18n.CATALOG)
+
+    def test_essential_processes_cannot_be_ended(self):
+        from superlimpio.safety import Risk, check_process_kill
+        self.assertFalse(check_process_kill("systemd", 1)[0])
+        self.assertFalse(check_process_kill("gnome-shell", 2345)[0])
+        self.assertFalse(check_process_kill("dbus-daemon", 900)[0])
+        self.assertEqual(check_process_kill("plasmashell", 2345)[:2], (True, Risk.ALTO))
+        self.assertTrue(check_process_kill("firefox", 3456)[0])
+
+    def test_paths_are_ranked_by_what_breaks(self):
+        L = self.c.Level
+        cases = {
+            "/": L.VITAL, "/mnt/datos": L.IMPORTANT, "/boot/vmlinuz": L.VITAL, "/etc/fstab": L.VITAL,
+            "/usr/bin/bash": L.VITAL, "/lib/x86_64-linux-gnu/libc.so.6": L.VITAL, "/usr/lib/": L.VITAL,
+            "/proc/1": L.VITAL, "/var/lib/dpkg/status": L.VITAL, "/var/lib/mysql": L.IMPORTANT,
+            "/var": L.IMPORTANT, "/var/log/syslog": L.CAUTION, "/var/cache/apt/archives/x.deb": L.CAUTION,
+            "/swapfile": L.IMPORTANT, "/opt/google/chrome": L.IMPORTANT, "/usr/local/bin/tool": L.IMPORTANT,
+            "/snap/firefox": L.IMPORTANT, "/home": L.IMPORTANT, "/home/ana": L.VITAL,
+            "/home/ana/.config": L.IMPORTANT, "/home/ana/.config/Code": L.CAUTION,
+            "/home/ana/.ssh/id_ed25519": L.IMPORTANT, "/home/ana/.cache": L.CAUTION,
+            "/home/ana/.cache/pip/x": L.NORMAL, "/home/ana/.bashrc": L.CAUTION,
+            "/home/ana/Documents": L.IMPORTANT, "/home/ana/Documents/carta.odt": L.NORMAL,
+            "/home/ana/proyectos/web/node_modules": L.NORMAL, "/home/luis/notas.txt": L.CAUTION,
+            "/mnt/datos/juegos/partida.sav": L.NORMAL, "/media/ana/USB/foto.jpg": L.NORMAL,
+            "/opt/apps/SuperLimpio/app/main.py": L.IMPORTANT, "/tmp/x.tmp": L.NORMAL, "/srv/web/index.html": L.NORMAL,
+        }
+        for path, level in cases.items():
+            a = self.c.assess_path(path, env=self.ENV)
+            self.assertEqual(a.level, level, path)
+            self.assertTrue(a.what and a.risk, path)
+
+    def test_only_system_files_are_flagged_as_damaging(self):
+        flagged = lambda p: self.c.assess_path(p, env=self.ENV).system  # noqa: E731
+        for path in ("/", "/boot/grub/grub.cfg", "/etc/passwd", "/usr/lib/libssl.so", "/bin/sh",
+                     "/var/lib/dpkg/status", "/swapfile", "/home/ana", "/home/ana/.ssh/id_rsa", "/home"):
+            self.assertTrue(flagged(path), path)
+        for path in ("/opt/google/chrome/chrome", "/home/ana/.config/Code/settings.json", "/home/ana/Documents",
+                     "/var/log/syslog", "/var/cache/apt/archives/x.deb", "/home/ana/.cache/pip/x",
+                     "/home/luis/a.txt", "/mnt/datos/pelis/a.mkv", "/opt/apps/SuperLimpio/app/main.py"):
+            self.assertFalse(flagged(path), path)
+
+    def test_efficient_mode_leaves_the_system_alone(self):
+        P = _proc
+        procs = [
+            P(1, "systemd", "/usr/lib/systemd/systemd", ppid=0),
+            P(700, "NetworkManager", "", ppid=1, accessible=False),
+            P(710, "syncthing", "/usr/bin/syncthing", ppid=1),
+            P(900, "systemd", "/usr/lib/systemd/systemd", ppid=1),             # el de la sesión del usuario
+            P(950, "gnome-shell", "/usr/bin/gnome-shell", ppid=900),
+            P(960, "gvfsd", "/usr/libexec/gvfsd", ppid=900),
+            P(1000, "firefox", "/usr/lib/firefox/firefox", ppid=900, private=900 * 1024 ** 2),
+            P(1001, "Web Content", "/usr/lib/firefox/firefox-bin", ppid=1000),
+            P(1100, "gnome-software", "/usr/bin/gnome-software", ppid=900),
+            P(1200, "gedit", "/usr/bin/gedit", ppid=900),
+            P(1300, "bash", "/usr/bin/bash", ppid=900),
+            P(1301, "python3", "/usr/bin/python3.12", ppid=1300),               # la propia aplicación
+        ]
+        from superlimpio.plat import WindowInfo
+        windows = [WindowInfo(5, 1000, "Mozilla Firefox"), WindowInfo(6, 1200, "sin título")]
+        plan = self.o.build_plan(procs, windows, profile="program", self_pid=1301, windir=self.SYS)
+        c = {x.name: x for x in plan.candidates}
+        self.assertEqual(sorted(c), ["firefox", "gedit", "gnome-software"])
+        self.assertEqual(c["firefox"].count, 2)                    # el navegador y su proceso hijo, juntos
+        self.assertEqual(c["firefox"].category, "browser")
+        self.assertEqual(c["gnome-software"].suggested, self.o.Action.CLOSE)
+        self.assertEqual(c["gedit"].suggested, self.o.Action.KEEP)  # tiene ventana: no se propone nada
+        # /usr/bin es de todos: que bash lance python no los convierte en el mismo programa
+        self.assertEqual(plan.kept, {"system": 5, "service": 1, "self": 2})
+        for cat in list(plat.know.CATALOG) + ["other"]:
+            self.assertIn(f"opt.cat.{cat}", i18n.CATALOG)
+
+    def test_platform_lists_have_their_texts(self):
+        from unittest import mock
+        from superlimpio.plat import linux
+        ids = [c["id"] for c in linux.cleaner_categories()]
+        self.assertEqual(len(ids), len(set(ids)))
+        for c in linux.cleaner_categories():
+            self.assertIn(f"clean.{c['id']}.name", i18n.CATALOG)
+            self.assertIn(f"clean.{c['id']}.desc", i18n.CATALOG)
+            self.assertIn(f"cleaner.group.{c['group']}", i18n.CATALOG)
+            for path in c.get("dirs", []) + c.get("files", []):   # nunca una carpeta entera del sistema o del perfil
+                self.assertGreaterEqual(path.replace("\\", "/").strip("/").count("/"), 1, path)
+        with mock.patch("shutil.which", lambda name: "/usr/bin/" + name):   # como si todo estuviera instalado
+            tools = linux.system_tools()
+        self.assertGreater(len(tools), 5)
+        for t in tools:
+            for part in ("title", "desc", "effect"):
+                self.assertIn(f"systool.{t['id']}.{part}", i18n.CATALOG)
+        for key in i18n.CATALOG:
+            if "@" in key:   # un texto propio de un sistema siempre sustituye a uno que existe
+                self.assertIn(key.split("@")[0], i18n.CATALOG, key)
+
+    def test_uninstall_goes_through_the_package_manager(self):
+        from unittest import mock
+        from superlimpio.plat import linux
+        with mock.patch("shutil.which", lambda name: "/usr/bin/" + name):
+            plan = build_uninstall_plan(Program(name="GIMP", scope="deb", reg_key="gimp"), linux.uninstall_command)
+            self.assertEqual(plan.display, "sudo apt-get remove gimp")
+            self.assertTrue(plan.exe and "sudo apt-get remove gimp" in plan.params)
+            plan = build_uninstall_plan(Program(name="X", scope="flatpak", reg_key="org.x.App; rm -rf ~"),
+                                        linux.uninstall_command)
+            self.assertEqual(plan.display, "flatpak uninstall 'org.x.App; rm -rf ~'")   # entrecomillado: no se ejecuta
+        plan = build_uninstall_plan(Program(name="Suelto", scope="user_app", reg_key="/home/ana/x.desktop"),
+                                    linux.uninstall_command)
+        self.assertEqual(plan.exe, "")                              # sin paquete no hay nada que lanzar
+        self.assertTrue(plan.warnings)
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "llamadas reales al sistema: solo en Linux")
+class LinuxPlatformTests(unittest.TestCase):
+    def setUp(self):
+        from superlimpio.plat import linux
+        self.lx = linux
+
+    def test_processes_and_memory_are_read_from_proc(self):
+        procs = {p.pid: p for p in self.lx.list_processes()}
+        me = procs[os.getpid()]
+        self.assertTrue(me.accessible and me.path and me.private > 0 and me.threads >= 1)
+        self.assertIn("python", me.name.lower())
+        self.assertNotIn(2, procs)                                   # los hilos del núcleo no se listan
+        self.assertTrue(self.lx.process_alive(me.pid, me.create_time))
+        self.assertFalse(self.lx.process_alive(me.pid, me.create_time + 50))   # mismo PID, otro proceso
+        mem = self.lx.memory_status()
+        self.assertTrue(mem.total > mem.available > 0)
+        perf = self.lx.performance_info()
+        self.assertGreater(perf.processes, 1)
+        self.assertEqual(self.lx.list_drives()[0], "/")
+
+    def test_ending_a_process_checks_it_is_still_the_same(self):
+        import subprocess
+        child = subprocess.Popen(["sleep", "60"])
+        try:
+            info = next(p for p in self.lx.list_processes() if p.pid == child.pid)
+            self.assertEqual(info.name, "sleep")
+            ok, _msg = self.lx.terminate_process(child.pid, info.create_time + 50)
+            self.assertFalse(ok)                                     # no es el que se analizó: no se toca
+            self.assertIsNone(child.poll())
+            ok, _msg, prev = self.lx.set_efficiency(child.pid, info.create_time)
+            self.assertTrue(ok)
+            self.assertEqual(os.getpriority(os.PRIO_PROCESS, child.pid), 10)
+            self.assertEqual(prev, plat.PRIORITY_NORMAL)
+            ok, _msg = self.lx.terminate_process(child.pid, info.create_time)
+            self.assertTrue(ok)
+            child.wait(timeout=5)
+        finally:
+            if child.poll() is None:
+                child.kill()
+
+    def test_trash_follows_the_freedesktop_layout(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            data = os.path.join(tmp, "datos")
+            victim = os.path.join(tmp, "trabajo", "informe ñ.txt")
+            folder = os.path.join(tmp, "trabajo", "carpeta")
+            _write(victim, 1234)
+            _write(os.path.join(folder, "a.bin"), 100)
+            with mock.patch.dict(os.environ, {"XDG_DATA_HOME": data}):
+                ok, msg = self.lx.send_to_recycle_bin([victim, folder])
+                self.assertTrue(ok, msg)
+                self.assertFalse(os.path.exists(victim) or os.path.exists(folder))
+                trash = os.path.join(data, "Trash")
+                self.assertEqual(sorted(os.listdir(os.path.join(trash, "files"))), ["carpeta", "informe ñ.txt"])
+                info = open(os.path.join(trash, "info", "informe ñ.txt.trashinfo"), encoding="utf-8").read()
+                self.assertTrue(info.startswith("[Trash Info]\nPath="))
+                self.assertIn("informe%20%C3%B1.txt", info)
+                self.assertIn("DeletionDate=", info)
+                size, count = self.lx.recycle_bin_info()
+                self.assertEqual((size, count), (1334, 2))
+                _write(victim, 5)                                    # otro con el mismo nombre no pisa al primero
+                self.assertTrue(self.lx.send_to_recycle_bin([victim])[0])
+                self.assertEqual(len(os.listdir(os.path.join(trash, "files"))), 3)
+                ok, _msg = self.lx.send_to_recycle_bin([os.path.join(tmp, "no existe")])
+                self.assertFalse(ok)
+                self.assertTrue(self.lx.empty_recycle_bin()[0])
+                self.assertEqual(self.lx.recycle_bin_info(), (0, 0))
+
+    def test_system_paths_cannot_be_deleted(self):
+        home = os.path.expanduser("~")
+        for path in ("/", "/usr", "/usr/bin/python3", "/etc/passwd", "/boot", "/var/lib/dpkg", "/home", home,
+                     os.path.join(home, ".config"), os.path.join(home, ".ssh"), "/opt", "/var/log/syslog"):
+            self.assertFalse(check_deletable(path).allowed, path)
+        for path in (os.path.join(home, "proyectos", "viejo"), os.path.join(home, ".cache", "pip", "x"),
+                     os.path.join(home, ".config", "Code", "Cache"), "/mnt/datos/pelis/a.mkv"):
+            self.assertTrue(check_deletable(path).allowed, path)
+
+    def test_lists_of_the_system_do_not_fail(self):
+        from superlimpio import programs, startup, systools
+        self.assertIsInstance(programs.list_installed(), list)
+        self.assertIsInstance(startup.list_startup(), list)
+        self.assertIsInstance(systools.tools(), list)
+        self.assertTrue(cleaner.default_categories())
+        caps = plat.capabilities()
+        self.assertFalse(caps["elevate"] or caps["trim"])
+
+    def test_desktop_entries_are_read_without_running_anything(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            entry = os.path.join(tmp, "x.desktop")
+            with open(entry, "w", encoding="utf-8") as fh:
+                fh.write("[Desktop Entry]\nType=Application\nName=Editor\nName[es]=Editor de textos\n"
+                         "Exec=env LANG=C /bin/sh -c 'echo hola' %U\nHidden=false\n\n[Otra sección]\nExec=/bin/false\n")
+            d = self.lx._desktop_entry(entry)
+            self.assertEqual((d["Name"], d["Name[es]"], d["Type"]), ("Editor", "Editor de textos", "Application"))
+            self.assertEqual(self.lx._exec_program(d["Exec"]), "/bin/sh")
+            self.assertEqual(self.lx._exec_program("no-existe-este-programa --x"), "")
 
 
 if __name__ == "__main__":

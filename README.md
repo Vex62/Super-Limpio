@@ -55,6 +55,36 @@ En este zip no viene `SuperLimpio.exe`, porque los programas compilados no se gu
 - Nada se borra sin que lo confirmes antes: cada acción enseña exactamente qué va a tocar.
 - Para quitar Super Limpio del equipo, borra su carpeta. No deja nada más.
 
+## Linux
+
+Hay un paquete aparte, `SuperLimpio-<versión>-linux.tar.gz`, con el mismo código y un lanzador para Linux. No lleva Python: usa el del sistema (3.10 o posterior, con tkinter).
+
+```
+tar -xzf SuperLimpio-<versión>-linux.tar.gz
+cd SuperLimpio
+./superlimpio.sh                # abre la aplicación
+./superlimpio.sh --instalar     # opcional: la añade al menú de aplicaciones de tu usuario
+```
+
+Si falta Python o tkinter, el lanzador dice qué paquete instalar (en Debian/Ubuntu, `sudo apt install python3-tk`). No instala nada en el sistema ni necesita permisos de administrador.
+
+Qué cambia respecto a Windows:
+
+| Sección | En Linux |
+|---|---|
+| **Analizador de disco**, **Librerías de desarrollo**, compresor 7z/ZIP | Igual. La contraseña de los archivos usa OpenSSL |
+| **Papelera** | La del escritorio (especificación de FreeDesktop): lo enviado se recupera desde el gestor de archivos |
+| **Programas** | Aplicaciones del menú con el paquete que las trae (deb, rpm, pacman), más Flatpak y Snap. Desinstalar abre una terminal con el comando del gestor de paquetes, que pide confirmación él mismo |
+| **Memoria y procesos**, **Optimizar** | Se lee de `/proc`. «Finalizar» pide primero al programa que termine y solo después lo fuerza. Los hilos del núcleo no se listan |
+| **Modo eficiente** | Ralentizar baja la prioridad, pero Linux solo deja devolverla a un administrador, así que no se propone por defecto. Para saber qué programas tienen ventana hace falta `wmctrl` |
+| **Inicio** | Carpetas `autostart` y servicios de usuario de systemd |
+| **Limpieza** | Miniaturas, informes de fallo, paquetes descargados, cachés de navegadores y de desarrollo, shaders y Papelera. No toca `/tmp` |
+| **Herramientas** | Las de la distribución que estén instaladas: journalctl, apt/dnf/pacman, Flatpak, fstrim. Se abren en una terminal, donde `sudo` pide la contraseña |
+
+No hay «reiniciar como administrador»: una interfaz gráfica como root no es buena idea en Linux. Lo que necesita privilegios se hace en una terminal con `sudo`, a la vista.
+
+Lo que depende del sistema operativo está aislado en `app/superlimpio/plat/`: `windows.py` y `linux.py` hacen las llamadas al sistema, y `windows_know.py` y `linux_know.py` saben qué procesos y carpetas son vitales en cada uno.
+
 ## Para quien modifica el código
 
 ### Trabajar con VS Code portable

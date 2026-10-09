@@ -9,9 +9,15 @@ reconstruye entera, por lo que ``t`` solo se evalúa al construir cada pantalla.
 
 from __future__ import annotations
 
+import sys
+
 LANGUAGES = [("en", "English"), ("es", "Español")]
 _DEFAULT = "en"
 _lang = _DEFAULT
+
+
+# Sufijo de las entradas propias de este sistema ('' en Windows, que es el texto base)
+_PLATFORM_SUFFIX = "" if sys.platform == "win32" else "@linux"
 
 
 def available() -> list[tuple[str, str]]:
@@ -45,8 +51,15 @@ def detect_os_language() -> str:
             candidates.append("en")
     except Exception:  # noqa: BLE001 - cualquier fallo cae en la detección estándar
         pass
+    import os
+    # En Linux y macOS el idioma lo dicen estas variables, por este orden de preferencia.
+    for var in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"):
+        value = os.environ.get(var, "")
+        if value and value not in ("C", "POSIX"):
+            candidates.append(value)
+            break
     try:
-        lang, _enc = locale.getdefaultlocale()
+        lang, _enc = locale.getlocale()
         if lang:
             candidates.append(lang)
     except (ValueError, OSError):
@@ -60,7 +73,8 @@ def detect_os_language() -> str:
 def t(key: str, /, **kw) -> str:
     # «key» es solo posicional: así un texto puede tener un marcador {key} (o {n}, {text}...)
     # sin chocar con el nombre del parámetro.
-    entry = CATALOG.get(key)
+    # Un texto que en otro sistema dice otra cosa tiene una segunda entrada «clave@sistema».
+    entry = (CATALOG.get(key + _PLATFORM_SUFFIX) if _PLATFORM_SUFFIX else None) or CATALOG.get(key)
     if entry is None:
         return key.format(**kw) if kw else key
     text = entry.get(_lang) or entry.get("en") or key
@@ -1681,4 +1695,353 @@ CATALOG: dict[str, dict[str, str]] = {
         "es": "Es la memoria de los procesos del sistema marcados como «Vital» o «Importante» en la tabla. "
               "No se libera cerrando nada, y Super Limpio nunca los propone: el margen está en los "
               "programas marcados como normales."},
+
+    # ------------------------------------------------------ varias plataformas
+    "zip.err.no_aes": {"en": "This computer has no system AES provider, so archives cannot be password-protected.",
+                       "es": "Este equipo no tiene cifrado AES del sistema, así que no se puede poner contraseña."},
+    "opt.reason.no_undo": {
+        "en": "On this system a lowered priority cannot be restored without administrator rights, so it "
+              "is not proposed. You can still choose it.",
+        "es": "En este sistema una prioridad bajada no se puede devolver sin permisos de administrador, "
+              "así que no se propone. Puedes elegirla tú."},
+    "opt.eff.confirm.no_undo": {
+        "en": "Warning: on this system slowing down CANNOT be undone from Super Limpio. Each program "
+              "recovers its normal priority when you close and reopen it.",
+        "es": "Atención: en este sistema ralentizar NO se puede deshacer desde Super Limpio. Cada programa "
+              "recupera su prioridad normal cuando lo cierras y lo vuelves a abrir."},
+
+    # ---------------------------------------------------------------- Linux
+    "linux.not_available": {"en": "Not available on Linux", "es": "No disponible en Linux"},
+    "linux.nice_denied": {
+        "en": "Linux only lets an administrator raise a priority again; it returns to normal when the "
+              "program is restarted.",
+        "es": "Linux solo deja volver a subir una prioridad a un administrador; vuelve a la normal al "
+              "reiniciar el programa."},
+    "linux.no_opener": {"en": "xdg-open is not installed, so nothing can be opened from here.",
+                        "es": "No está instalado xdg-open, así que no se puede abrir nada desde aquí."},
+    "linux.no_terminal": {"en": "No terminal emulator was found. Run the command yourself in a terminal.",
+                          "es": "No se ha encontrado ninguna terminal. Ejecuta tú el comando en una terminal."},
+    "linux.press_enter": {"en": "Press Enter to close this window...",
+                          "es": "Pulsa Intro para cerrar esta ventana..."},
+    "linux.uninstall_manual": {
+        "en": "This application does not belong to any package, so there is no official way to remove it. "
+              "Its menu entry is:\n{path}",
+        "es": "Esta aplicación no pertenece a ningún paquete, así que no hay una vía oficial para quitarla. "
+              "Su entrada del menú es:\n{path}"},
+    "linux.uninstall_sudo": {"en": "It affects the whole system: the terminal will ask for your sudo password.",
+                             "es": "Afecta a todo el sistema: la terminal pedirá tu contraseña de sudo."},
+    "startup.src.autostart_user": {"en": "Autostart (your user)", "es": "Autoarranque (tu usuario)"},
+    "startup.src.autostart_system": {"en": "Autostart (all users)", "es": "Autoarranque (todos los usuarios)"},
+    "startup.src.systemd_user": {"en": "systemd user service", "es": "Servicio de usuario de systemd"},
+    "programs.scope.deb": {"en": "System package (deb)", "es": "Paquete del sistema (deb)"},
+    "programs.scope.rpm": {"en": "System package (rpm)", "es": "Paquete del sistema (rpm)"},
+    "programs.scope.pacman": {"en": "System package (pacman)", "es": "Paquete del sistema (pacman)"},
+    "programs.scope.flatpak": {"en": "Flatpak", "es": "Flatpak"},
+    "programs.scope.snap": {"en": "Snap", "es": "Snap"},
+    "programs.scope.user_app": {"en": "Your user, no package", "es": "Tu usuario, sin paquete"},
+    "cleaner.group.Linux": {"en": "System", "es": "Sistema"},
+    "clean.pkgcache.name": {"en": "Downloaded packages", "es": "Paquetes descargados"},
+    "clean.pkgcache.desc": {"en": "Installers kept by the package manager (apt, dnf, pacman) after installing. "
+                                  "They are downloaded again if needed.",
+                            "es": "Instaladores que guarda el gestor de paquetes (apt, dnf, pacman) tras instalar. "
+                                  "Se vuelven a descargar si hacen falta."},
+    "clean.thumbs.name@linux": {"en": "Thumbnail cache", "es": "Caché de miniaturas"},
+    "clean.thumbs.desc@linux": {"en": "Previews made by the file manager. Rebuilt on demand.",
+                                "es": "Vistas previas que crea el gestor de archivos. Se regeneran solas."},
+    "clean.dumps.name@linux": {"en": "Crash reports and core dumps", "es": "Informes de fallo y volcados de memoria"},
+    "clean.dumps.desc@linux": {"en": "Files saved when a program crashes (/var/crash, systemd-coredump).",
+                               "es": "Archivos guardados cuando un programa se cuelga (/var/crash, systemd-coredump)."},
+    "clean.recycle.name@linux": {"en": "Trash", "es": "Papelera"},
+    "clean.recycle.desc@linux": {"en": "Empties your Trash on every mounted disk. It CANNOT be undone.",
+                                 "es": "Vacía tu Papelera en todos los discos montados. NO se puede deshacer."},
+    "clean.chrome.name@linux": {"en": "Chrome / Chromium: cache", "es": "Chrome / Chromium: caché"},
+    "clean.dx.name@linux": {"en": "GPU shader cache", "es": "Caché de shaders de la GPU"},
+    "clean.discord.name@linux": {"en": "Discord / Slack: cache", "es": "Discord / Slack: caché"},
+    "clean.recycle_location@linux": {"en": "Trash (all mounted disks)", "es": "Papelera (todos los discos montados)"},
+
+    "systool.lx_baobab.title": {"en": "Disk Usage Analyzer", "es": "Analizador de uso de disco"},
+    "systool.lx_baobab.desc": {"en": "The desktop's own tool to see what takes up space.",
+                               "es": "La herramienta del propio escritorio para ver qué ocupa espacio."},
+    "systool.lx_baobab.effect": {"en": "Opens the tool.", "es": "Abre la herramienta."},
+    "systool.lx_journal_size.title": {"en": "System log size", "es": "Tamaño del registro del sistema"},
+    "systool.lx_journal_size.desc": {"en": "Shows how much disk the systemd journal uses. Changes nothing.",
+                                     "es": "Muestra cuánto disco ocupa el registro (journal) de systemd. No cambia nada."},
+    "systool.lx_journal_size.effect": {"en": "Read-only query.", "es": "Solo consulta."},
+    "systool.lx_journal_vacuum.title": {"en": "Trim the system log to two weeks",
+                                        "es": "Recortar el registro del sistema a dos semanas"},
+    "systool.lx_journal_vacuum.desc": {"en": "Deletes journal entries older than two weeks.",
+                                       "es": "Borra las entradas del registro de más de dos semanas."},
+    "systool.lx_journal_vacuum.effect": {"en": "Deletes old system logs. It cannot be undone.",
+                                         "es": "Borra registros antiguos del sistema. No se puede deshacer."},
+    "systool.lx_apt_autoremove.title": {"en": "Remove packages nobody needs (apt)",
+                                        "es": "Quitar paquetes que ya nadie necesita (apt)"},
+    "systool.lx_apt_autoremove.desc": {"en": "Dependencies left behind and old kernels. apt lists them and asks first.",
+                                       "es": "Dependencias que quedaron sueltas y núcleos antiguos. apt los enumera y pregunta antes."},
+    "systool.lx_apt_autoremove.effect": {"en": "Uninstalls the packages apt lists, after you confirm in the terminal.",
+                                         "es": "Desinstala los paquetes que apt enumere, tras confirmar tú en la terminal."},
+    "systool.lx_apt_clean.title": {"en": "Empty the package cache (apt)", "es": "Vaciar la caché de paquetes (apt)"},
+    "systool.lx_apt_clean.desc": {"en": "Deletes the installers apt downloaded.",
+                                  "es": "Borra los instaladores que apt ha descargado."},
+    "systool.lx_apt_clean.effect": {"en": "Deletes downloaded .deb files. They are fetched again if needed.",
+                                    "es": "Borra los .deb descargados. Se vuelven a bajar si hacen falta."},
+    "systool.lx_dnf_autoremove.title": {"en": "Remove packages nobody needs (dnf)",
+                                        "es": "Quitar paquetes que ya nadie necesita (dnf)"},
+    "systool.lx_dnf_autoremove.desc": {"en": "Dependencies left behind. dnf lists them and asks first.",
+                                       "es": "Dependencias que quedaron sueltas. dnf las enumera y pregunta antes."},
+    "systool.lx_dnf_autoremove.effect": {"en": "Uninstalls the packages dnf lists, after you confirm in the terminal.",
+                                         "es": "Desinstala los paquetes que dnf enumere, tras confirmar tú en la terminal."},
+    "systool.lx_dnf_clean.title": {"en": "Empty the package cache (dnf)", "es": "Vaciar la caché de paquetes (dnf)"},
+    "systool.lx_dnf_clean.desc": {"en": "Deletes downloaded packages and repository data.",
+                                  "es": "Borra los paquetes descargados y los datos de los repositorios."},
+    "systool.lx_dnf_clean.effect": {"en": "Deletes the dnf cache. It is rebuilt on the next update.",
+                                    "es": "Borra la caché de dnf. Se reconstruye en la próxima actualización."},
+    "systool.lx_paccache.title": {"en": "Trim the package cache (pacman)", "es": "Recortar la caché de paquetes (pacman)"},
+    "systool.lx_paccache.desc": {"en": "Keeps the last three versions of each package and deletes the rest.",
+                                 "es": "Conserva las tres últimas versiones de cada paquete y borra el resto."},
+    "systool.lx_paccache.effect": {"en": "Deletes old cached packages.", "es": "Borra paquetes antiguos de la caché."},
+    "systool.lx_flatpak_unused.title": {"en": "Remove unused Flatpak runtimes",
+                                        "es": "Quitar entornos de Flatpak sin uso"},
+    "systool.lx_flatpak_unused.desc": {"en": "Runtimes no installed app needs any more. Flatpak lists them and asks first.",
+                                       "es": "Entornos que ya no necesita ninguna aplicación. Flatpak los enumera y pregunta antes."},
+    "systool.lx_flatpak_unused.effect": {"en": "Uninstalls what Flatpak lists, after you confirm in the terminal.",
+                                         "es": "Desinstala lo que Flatpak enumere, tras confirmar tú en la terminal."},
+    "systool.lx_fstrim.title": {"en": "Trim SSDs (fstrim)", "es": "Optimizar discos SSD (fstrim)"},
+    "systool.lx_fstrim.desc": {"en": "Tells SSDs which blocks are free. Most distributions already do it weekly.",
+                               "es": "Indica a los SSD qué bloques están libres. Casi todas las distribuciones ya lo hacen cada semana."},
+    "systool.lx_fstrim.effect": {"en": "Runs TRIM on the mounted disks. It deletes no files.",
+                                 "es": "Ejecuta TRIM en los discos montados. No borra ningún archivo."},
+
+    "crit.lproc.systemd": {"en": "systemd: starts and supervises everything else in the system.",
+                           "es": "systemd: arranca y vigila todo lo demás del sistema."},
+    "crit.lproc.journald": {"en": "System log service.", "es": "Servicio de registro del sistema."},
+    "crit.lproc.logind": {"en": "Manages user sessions, seats and suspend.",
+                          "es": "Gestiona las sesiones de usuario y la suspensión."},
+    "crit.lproc.udevd": {"en": "Detects and sets up devices as they are plugged in.",
+                         "es": "Detecta y prepara los dispositivos al conectarlos."},
+    "crit.lproc.resolved": {"en": "Name resolution (DNS).", "es": "Resolución de nombres (DNS)."},
+    "crit.lproc.timesyncd": {"en": "Keeps the clock in sync.", "es": "Mantiene el reloj en hora."},
+    "crit.lproc.oomd": {"en": "Steps in when memory runs out, before the system freezes.",
+                        "es": "Actúa cuando se agota la memoria, antes de que el sistema se bloquee."},
+    "crit.lproc.dbus": {"en": "D-Bus: the channel programs and the desktop use to talk to each other.",
+                        "es": "D-Bus: el canal por el que hablan entre sí los programas y el escritorio."},
+    "crit.lproc.display": {"en": "The graphical server: draws every window.",
+                           "es": "El servidor gráfico: dibuja todas las ventanas."},
+    "crit.lproc.xwayland": {"en": "Runs X11 programs inside the Wayland session.",
+                            "es": "Hace funcionar los programas X11 dentro de la sesión Wayland."},
+    "crit.lproc.desktop": {"en": "The desktop itself: windows, panels and the session.",
+                           "es": "El propio escritorio: ventanas, paneles y la sesión."},
+    "crit.lproc.login": {"en": "Login screen and session manager.",
+                         "es": "Pantalla de inicio de sesión y gestor de la sesión."},
+    "crit.lproc.polkit": {"en": "Decides which programs may ask for administrator rights.",
+                          "es": "Decide qué programas pueden pedir permisos de administrador."},
+    "crit.lproc.wm": {"en": "Window manager: borders, moving and resizing windows.",
+                      "es": "Gestor de ventanas: bordes, mover y redimensionar ventanas."},
+    "crit.lproc.session": {"en": "Keeps your desktop session together.",
+                           "es": "Mantiene en pie tu sesión de escritorio."},
+    "crit.lproc.network": {"en": "NetworkManager: wired, Wi-Fi and VPN connections.",
+                           "es": "NetworkManager: conexiones por cable, Wi-Fi y VPN."},
+    "crit.lproc.packages": {"en": "The package manager: it is installing or updating software.",
+                            "es": "El gestor de paquetes: está instalando o actualizando software."},
+    "crit.lproc.snapd": {"en": "Runs and updates Snap applications.",
+                         "es": "Hace funcionar y actualiza las aplicaciones Snap."},
+    "crit.lproc.containers": {"en": "Container engine (Docker / containerd).",
+                              "es": "Motor de contenedores (Docker / containerd)."},
+    "crit.lproc.sshd": {"en": "SSH server: remote access to this computer.",
+                        "es": "Servidor SSH: acceso remoto a este equipo."},
+    "crit.lproc.cron": {"en": "Runs scheduled tasks.", "es": "Ejecuta las tareas programadas."},
+    "crit.lproc.system_service": {"en": "System service.", "es": "Servicio del sistema."},
+    "crit.lproc.desktop_component": {"en": "A helper piece of the system or the desktop.",
+                                     "es": "Pieza auxiliar del sistema o del escritorio."},
+    "crit.lpath.etc": {"en": "System-wide configuration: users, passwords, services and network.",
+                       "es": "La configuración de todo el sistema: usuarios, contraseñas, servicios y red."},
+    "crit.lpath.usr": {"en": "The system's programs and libraries.",
+                       "es": "Los programas y las bibliotecas del sistema."},
+    "crit.lpath.virtual": {"en": "Not real files: a window onto the kernel and the devices.",
+                           "es": "No son archivos reales: son una ventana al núcleo y a los dispositivos."},
+    "crit.lpath.root_home": {"en": "The administrator's personal folder.",
+                             "es": "La carpeta personal del administrador."},
+    "crit.lpath.srv": {"en": "Data served by this computer (web, FTP...).",
+                       "es": "Datos que sirve este equipo (web, FTP...)."},
+    "crit.lpath.lost_found": {"en": "Where the disk check keeps recovered fragments.",
+                              "es": "Donde la comprobación del disco guarda fragmentos recuperados."},
+    "crit.lpath.mounts": {"en": "Where other disks and USB drives are attached.",
+                          "es": "Donde se conectan los demás discos y memorias USB."},
+    "crit.lpath.pkgdb": {"en": "The package manager's database: what is installed.",
+                         "es": "La base de datos del gestor de paquetes: qué hay instalado."},
+    "crit.lpath.containers": {"en": "Docker images, containers and volumes.",
+                              "es": "Imágenes, contenedores y volúmenes de Docker."},
+    "crit.lpath.var_cache": {"en": "System caches.", "es": "Cachés del sistema."},
+    "crit.lpath.var": {"en": "Data that system services change while running.",
+                       "es": "Datos que los servicios del sistema van cambiando al funcionar."},
+    "crit.lpath.keys": {"en": "Your keys and certificates (SSH, GPG).",
+                        "es": "Tus claves y certificados (SSH, GPG)."},
+    "crit.lpath.shell_config": {"en": "Configuration of your terminal and session.",
+                                "es": "Configuración de tu terminal y de tu sesión."},
+    "crit.lprisk.keys": {"en": "Without them you lose access to servers and encrypted data, and they cannot "
+                               "be regenerated.",
+                         "es": "Sin ellas pierdes el acceso a servidores y a datos cifrados, y no se pueden "
+                               "regenerar."},
+
+    # ---- textos que en Linux dicen otra cosa (clave@linux sustituye a la clave)
+    "common.open_explorer@linux": {"en": "Open in file manager", "es": "Abrir en el gestor de archivos"},
+    "common.windows_only@linux": {"en": "Not available on Linux", "es": "No disponible en Linux"},
+    "app.status_hint@linux": {"en": "Every action asks for confirmation · logged to logs/acciones.log",
+                              "es": "Todas las acciones piden confirmación · registro en logs/acciones.log"},
+    "nav.startup@linux": {"en": "Session startup", "es": "Inicio de sesión"},
+    "startup.title@linux": {"en": "Session startup", "es": "Inicio de sesión"},
+    "startup.manage@linux": {"en": "Manage startup applications", "es": "Administrar aplicaciones de inicio"},
+    "startup.note@linux": {
+        "en": "For safety, Super Limpio only shows this list. To turn an entry off use your desktop's "
+              "startup settings (or the «autostart» folder): that is the official, reversible way.",
+        "es": "Por seguridad, Super Limpio solo muestra esta lista. Para desactivar una entrada usa los "
+              "ajustes de inicio de tu escritorio (o la carpeta «autostart»): es la vía oficial y reversible."},
+    "summary.recycle_bin@linux": {"en": "Trash", "es": "Papelera"},
+    "summary.drives@linux": {"en": "Disks", "es": "Discos"},
+    "disk.prompt@linux": {"en": "Choose a disk or folder and press Analyze.",
+                          "es": "Elige un disco o carpeta y pulsa Analizar."},
+    "programs.store_apps@linux": {"en": "Software store…", "es": "Tienda de aplicaciones…"},
+    "programs.detail@linux": {"en": "Removed with: {cmd}\nPackage: {key}",
+                              "es": "Se quita con: {cmd}\nPaquete: {key}"},
+    "programs.uninstall_dialog.body@linux": {
+        "en": "A terminal will open with the package manager's own command. It lists what it is going to "
+              "remove and asks you to confirm; Super Limpio deletes nothing on its own.",
+        "es": "Se abrirá una terminal con el comando del propio gestor de paquetes. Enumera lo que va a "
+              "quitar y te pide confirmación; Super Limpio no borra nada por su cuenta."},
+    "tools.subtitle@linux": {
+        "en": "Shortcuts to your distribution's own tools. You see the exact command before running it.",
+        "es": "Accesos a las herramientas de tu propia distribución. Ves el comando exacto antes de ejecutarlo."},
+    "tools.admin_note@linux": {
+        "en": "\n\nIt opens in a terminal, where sudo asks for your password. The terminal stays open so you "
+              "can read the result.",
+        "es": "\n\nSe abre en una terminal, donde sudo te pide la contraseña. La terminal queda abierta para "
+              "que veas el resultado."},
+    "safety.drive_root@linux": {"en": "The root of a disk cannot be deleted.",
+                                "es": "No se puede borrar la raíz de un disco."},
+    "safety.per_drive_system@linux": {
+        "en": "System folder of the disk (recovered fragments or another system's trash).",
+        "es": "Carpeta del sistema del disco (fragmentos recuperados o la papelera de otro sistema)."},
+    "safety.program_files@linux": {
+        "en": "It is where programs are installed. Use \"Programs > Uninstall\" so the package manager "
+              "removes them properly.",
+        "es": "Es donde se instalan los programas. Usa «Programas > Desinstalar» para que el gestor de "
+              "paquetes los quite bien."},
+    "safety.file.pagefile@linux": {"en": "Swap file (virtual memory). It is managed with swapoff/swapon.",
+                                   "es": "Archivo de intercambio (memoria virtual). Se gestiona con swapoff/swapon."},
+    "safety.proc.essential@linux": {
+        "en": "Essential system process: ending it can freeze the computer or close your session.",
+        "es": "Proceso esencial del sistema: finalizarlo puede colgar el equipo o cerrar tu sesión."},
+    "safety.proc.sensitive@linux": {
+        "en": "Part of the desktop: panels, sound or network may fail for a few seconds.",
+        "es": "Parte del escritorio: los paneles, el sonido o la red pueden fallar unos segundos."},
+    "memory.detail_hint@linux": {
+        "en": "Select a process to see what it is, whether the system needs it and what happens if it is closed.",
+        "es": "Selecciona un proceso para ver qué es, si el sistema lo necesita y qué pasa si se cierra."},
+    "memory.kill.system_warning@linux": {
+        "en": "\n\nWarning: the list includes system components or services. Read below what each one is "
+              "before continuing.",
+        "es": "\n\nAtención: la lista incluye componentes o servicios del sistema. Lee abajo qué es cada uno "
+              "antes de continuar."},
+    "memory.kill.body@linux": {
+        "en": "The listed processes will be asked to quit and, if they do not, force-closed. {reasons}",
+        "es": "Se pedirá a los procesos indicados que terminen y, si no lo hacen, se forzará su cierre. {reasons}"},
+    "disk.legend.vital@linux": {"en": "Vital for the system", "es": "Vital para el sistema"},
+    "opt.an.sum.perf@linux": {
+        "en": "Committed {commit} · file cache {cache} · kernel {kernel} · {procs} processes, "
+              "{threads} threads, {handles} open files",
+        "es": "Comprometida {commit} · caché de archivos {cache} · núcleo {kernel} · {procs} procesos, "
+              "{threads} hilos, {handles} archivos abiertos"},
+    "opt.eff.note@linux": {
+        "en": "On Linux: closing asks the program to quit (and its window to close, if «wmctrl» is "
+              "installed); without wmctrl Super Limpio cannot tell which programs have a window. Slowing "
+              "down lowers the priority and, without administrator rights, lasts until the program is "
+              "restarted.",
+        "es": "En Linux: cerrar pide al programa que termine (y a su ventana que se cierre, si está "
+              "instalado «wmctrl»); sin wmctrl Super Limpio no sabe qué programas tienen ventana. "
+              "Ralentizar baja la prioridad y, sin permisos de administrador, dura hasta que el programa "
+              "se reinicia."},
+    "crit.proc.system@linux": {"en": "The Linux kernel and its threads.", "es": "El núcleo de Linux y sus hilos."},
+    "crit.proc.essential@linux": {"en": "Essential system process.", "es": "Proceso esencial del sistema."},
+    "crit.proc.audiodg@linux": {"en": "Sound server (PipeWire / PulseAudio).",
+                                "es": "Servidor de sonido (PipeWire / PulseAudio)."},
+    "crit.proc.explorer@linux": {"en": "Desktop shell: panel, launcher and desktop.",
+                                 "es": "Entorno del escritorio: panel, lanzador y escritorio."},
+    "crit.proc.shell@linux": {"en": "Part of the desktop.", "es": "Parte del escritorio."},
+    "crit.proc.vmmem@linux": {"en": "A virtual machine (QEMU/KVM).", "es": "Una máquina virtual (QEMU/KVM)."},
+    "crit.proc.no_access@linux": {
+        "en": "It belongs to another user (usually the system): a standard user cannot inspect it.",
+        "es": "Es de otro usuario (casi siempre, del sistema): un usuario estándar no puede inspeccionarlo."},
+    "crit.proc.normal@linux": {"en": "Ordinary program: the system does not depend on it.",
+                               "es": "Programa corriente: el sistema no depende de él."},
+    "crit.proc.spooler@linux": {"en": "Print service (CUPS).", "es": "Servicio de impresión (CUPS)."},
+    "crit.proc.wlan@linux": {"en": "Wi-Fi authentication.", "es": "Autenticación de la Wi-Fi."},
+    "crit.proc.ctfmon@linux": {"en": "Input method: keyboard layouts, accents and other alphabets.",
+                               "es": "Método de entrada: idiomas del teclado, acentos y otros alfabetos."},
+    "crit.proc.indexer@linux": {"en": "File indexer: makes desktop searches instant.",
+                                "es": "Indexador de archivos: hace instantáneas las búsquedas del escritorio."},
+    "crit.risk.vital@linux": {
+        "en": "If it stops, the system freezes or restarts at once: everything unsaved is lost.",
+        "es": "Si se detiene, el sistema se bloquea o se reinicia al momento: se pierde todo lo que no esté "
+              "guardado."},
+    "crit.risk.audio@linux": {"en": "Without it there is no sound until it starts again.",
+                              "es": "Sin él no hay sonido hasta que se vuelva a lanzar."},
+    "crit.risk.relaunch@linux": {"en": "It usually starts again on its own; something may fail for a moment.",
+                                 "es": "Suele volver a lanzarse solo; algo puede fallar un momento."},
+    "crit.risk.store_apps@linux": {"en": "Without it Snap applications stop working or updating.",
+                                   "es": "Sin él las aplicaciones Snap dejan de funcionar o de actualizarse."},
+    "crit.risk.component@linux": {
+        "en": "Closing it is not recommended: a system feature may stop working until the next restart.",
+        "es": "No se recomienda cerrarlo: alguna función del sistema puede dejar de funcionar hasta reiniciar."},
+    "crit.risk.service@linux": {
+        "en": "Stop it with systemctl, not by ending the process: whatever depends on it stops working.",
+        "es": "Se detiene con systemctl, no finalizando el proceso: lo que dependa de él deja de funcionar."},
+    "crit.risk.network@linux": {"en": "The network connection drops until it starts again.",
+                                "es": "La conexión de red se corta hasta que se reinicie."},
+    "crit.risk.vm@linux": {
+        "en": "Ending it powers the virtual machine or the containers off abruptly. Shut them down from "
+              "their own program.",
+        "es": "Finalizarlo apaga de golpe la máquina virtual o los contenedores. Apágalos desde su programa."},
+    "crit.risk.unknown@linux": {"en": "Run Super Limpio with sudo to find out what it is before closing it.",
+                                "es": "Ejecuta Super Limpio con sudo para saber qué es antes de cerrarlo."},
+    "crit.path.drive_root@linux": {"en": "The root of a disk.", "es": "La raíz de un disco."},
+    "crit.path.windows_temp@linux": {"en": "Temporary files.", "es": "Archivos temporales."},
+    "crit.path.windows_logs@linux": {"en": "System logs.", "es": "Registros (logs) del sistema."},
+    "crit.path.boot@linux": {"en": "Boot files: the kernel and the boot loader.",
+                             "es": "Archivos de arranque: el núcleo y el cargador de arranque."},
+    "crit.path.recycle_bin@linux": {"en": "Your Trash.", "es": "Tu Papelera."},
+    "crit.path.store_apps@linux": {"en": "Flatpak or Snap applications and their data.",
+                                   "es": "Aplicaciones Flatpak o Snap y sus datos."},
+    "crit.path.programdata@linux": {"en": "Internal data of the system and its services.",
+                                    "es": "Datos internos del sistema y de sus servicios."},
+    "crit.path.personal@linux": {"en": "A personal file: the system does not need it.",
+                                 "es": "Archivo personal: el sistema no lo necesita."},
+    "crit.path.pagefile@linux": {"en": "Swap file (virtual memory).", "es": "Archivo de intercambio (memoria virtual)."},
+    "crit.path.dumps@linux": {"en": "Crash reports and memory dumps.", "es": "Informes de fallo y volcados de memoria."},
+    "crit.path.user_temp@linux": {"en": "Your programs' caches.", "es": "Cachés de tus programas."},
+    "crit.path.appdata_root@linux": {"en": "Where every program keeps your settings and data.",
+                                     "es": "Donde todos los programas guardan tu configuración y tus datos."},
+    "crit.prisk.vital@linux": {"en": "Without it the system does not start or stops working. Super Limpio "
+                                     "will not delete it.",
+                               "es": "Sin ello el sistema no arranca o deja de funcionar. Super Limpio no lo borra."},
+    "crit.prisk.drive_root@linux": {"en": "Deleting it would erase the whole disk. Super Limpio will not delete it.",
+                                    "es": "Borrarla sería borrar el disco entero. Super Limpio no la borra."},
+    "crit.prisk.important@linux": {"en": "Deleting it breaks system features or programs. Super Limpio will "
+                                         "not delete it.",
+                                   "es": "Borrarlo estropea funciones del sistema o programas. Super Limpio no lo borra."},
+    "crit.prisk.managed@linux": {"en": "The system manages it; it is resized or removed with swapoff, not by "
+                                       "deleting it.",
+                                 "es": "Lo gestiona el sistema; se ajusta o se quita con swapoff, no borrándolo."},
+    "crit.prisk.regen@linux": {"en": "It is recreated on its own. Empty it from \"Cleanup\", which knows what is safe.",
+                               "es": "Se vuelve a crear solo. Vacíalo desde «Limpieza», que sabe qué es seguro."},
+    "crit.prisk.program@linux": {"en": "Deleting it by hand leaves the program broken and still registered. "
+                                       "Use \"Programs > Uninstall\".",
+                                 "es": "Borrarlo a mano deja el programa roto y todavía registrado. Usa «Programas > "
+                                       "Desinstalar»."},
+    "crit.prisk.app_data@linux": {"en": "The system keeps working, but that program may lose its settings, "
+                                        "accounts or saved data.",
+                                  "es": "El sistema sigue funcionando, pero ese programa puede perder su configuración, "
+                                        "sus cuentas o sus datos guardados."},
+    "crit.prisk.other_profile@linux": {"en": "The system keeps working, but that person loses their files.",
+                                       "es": "El sistema sigue funcionando, pero esa persona pierde sus archivos."},
+    "crit.prisk.recycle_bin@linux": {"en": "Empty it from \"Cleanup\" instead of deleting the folder.",
+                                     "es": "Vacíala desde «Limpieza» en vez de borrar la carpeta."},
 }
