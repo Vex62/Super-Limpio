@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tkinter import ttk
 
-from ... import winapi
+from ... import i18n, winapi
 from ...safety import read_log
 from ...util import LOG_DIR
 from ..widgets import ScrollTree, SortableTable
@@ -10,17 +10,19 @@ from .base import View
 
 
 class LogView(View):
-    title = "Registro de acciones"
-    subtitle = "Todo lo que Super Limpio ha hecho en este equipo (se guarda en la carpeta logs, junto a la app)."
     icon = "log"
+    view_key = "log"
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        self.title = i18n.t("log.title")
+        self.subtitle = i18n.t("log.subtitle")
         bar = self.toolbar()
-        ttk.Button(bar, text="Actualizar", command=self.load).pack(side="left")
-        ttk.Button(bar, text="Abrir carpeta de registros", command=self._open).pack(side="left", padx=self.px(6))
-        cols = [("fecha", "Fecha", 150, "w"), ("accion", "Acción", 150, "w"), ("ok", "OK", 50, "center"),
-                ("objetivo", "Objetivo", 420, "w"), ("resultado", "Resultado", 340, "w")]
+        ttk.Button(bar, text=i18n.t("common.refresh"), command=self.load).pack(side="left")
+        ttk.Button(bar, text=i18n.t("log.open_folder"), command=self._open).pack(side="left", padx=self.px(6))
+        cols = [("fecha", i18n.t("log.col.date"), 150, "w"), ("accion", i18n.t("log.col.action"), 150, "w"),
+                ("ok", i18n.t("log.col.ok"), 50, "center"), ("objetivo", i18n.t("log.col.target"), 420, "w"),
+                ("resultado", i18n.t("log.col.result"), 340, "w")]
         box = ScrollTree(self, cols, sf=self.sf)
         box.pack(fill="both", expand=True)
         self.table = SortableTable(

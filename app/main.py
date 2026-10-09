@@ -32,32 +32,92 @@ def _enable_dpi_awareness() -> None:
             pass
 
 
+def _setup_language() -> None:
+    """Fija el idioma: el guardado en la configuración o, la primera vez, el del sistema."""
+    from superlimpio import config, i18n
+    lang = config.get("language")
+    if not lang:
+        lang = i18n.detect_os_language()
+    i18n.set_language(lang)
+
+
+def _check_integrity() -> bool:
+    """Verifica la firma de la distribución. Devuelve False si está manipulada."""
+    from superlimpio import i18n, integrity
+    from superlimpio.safety import log_action
+
+    result = integrity.verify_distribution()
+    if result.ok:
+        if result.enforced:
+            log_action("integridad", "", "ok")
+        return True
+    log_action("integridad", "", result.detail, ok=False)
+    try:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror(i18n.t("integrity.tampered_title"),
+                             i18n.t("integrity.tampered_body", detail=result.detail))
+        root.destroy()
+    except Exception:  # noqa: BLE001
+        print(i18n.t("integrity.tampered_body", detail=result.detail))
+    return False
+
+
 def main() -> int:
     if sys.version_info < (3, 10):
-        print("Super Limpio necesita Python 3.10 o superior.")
+        print("Super Limpio needs Python 3.10 or newer.")
         return 1
+
+    _setup_language()
+    from superlimpio import i18n
+
     try:
         import tkinter  # noqa: F401
     except ImportError:
-        print("Falta tkinter. Ejecuta preparar_entorno.bat para instalar el Python portable completo.")
+        print(i18n.t("main.need_tkinter"))
         return 1
     _enable_dpi_awareness()
 
+    if not _check_integrity():
+        return 2
+
+    from superlimpio import recovery
     from superlimpio.safety import log_action
     from superlimpio.ui.app import App
 
-    app = App()
+    # Recuperación: a petición (--recuperar) o si el arranque anterior no se completó.
+    force_repair = any(a in ("--recuperar", "--repair") for a in sys.argv[1:])
+    if force_repair or recovery.pending_recovery():
+        actions = recovery.repair("manual" if force_repair else "unclean_shutdown")
+        log_action("recuperacion", "", "; ".join(actions))
+        _setup_language()  # la config pudo restablecerse: vuelve a fijar el idioma
+
+    recovery.mark_starting()
+    try:
+        app = App()
+    except Exception:  # noqa: BLE001 - un fallo al construir la UI dispara reparación y un reintento
+        log_action("error_arranque", "", traceback.format_exc()[-1500:], ok=False)
+        recovery.repair("startup_error")
+        _setup_language()
+        app = App()
 
     def report(exc, val, tb):
         text = "".join(traceback.format_exception(exc, val, tb))
         log_action("error_interno", "", text[-1500:], ok=False)
         traceback.print_exception(exc, val, tb)
         from superlimpio.ui import dialogs
-        dialogs.error(app.root, "Error inesperado",
-                      f"{val}\n\nLa aplicación sigue funcionando. Detalle guardado en logs\\acciones.log")
+        dialogs.error(app.root, i18n.t("error.unexpected.title"),
+                      i18n.t("error.unexpected.body", detail=str(val)))
 
     app.root.report_callback_exception = report
-    app.run()
+    # Cuando la ventana lleva unos segundos en pie, el arranque se considera correcto.
+    app.root.after(4000, recovery.mark_started)
+    try:
+        app.run()
+    finally:
+        recovery.mark_started()
     return 0
 
 

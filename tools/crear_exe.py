@@ -233,11 +233,11 @@ def _version_info() -> bytes:
     ms, ls = (parts[0] << 16) | parts[1], (parts[2] << 16) | parts[3]
     fixed = struct.pack("<13I", 0xFEEF04BD, 0x00010000, ms, ls, ms, ls, 0x3F, 0, 0x00040004, 1, 0, 0, 0)
     strings = {
-        "CompanyName": f"{APP_NAME} (código abierto)",
+        "CompanyName": APP_NAME,
         "FileDescription": APP_NAME,
         "FileVersion": __version__,
         "InternalName": "SuperLimpio",
-        "LegalCopyright": "Código fuente legible incluido en la carpeta app",
+        "LegalCopyright": f"© {APP_NAME}",
         "OriginalFilename": EXE.name,
         "ProductName": APP_NAME,
         "ProductVersion": __version__,

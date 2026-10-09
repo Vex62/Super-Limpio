@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import TYPE_CHECKING
 
+from ... import config
 from .. import theme
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -14,6 +15,7 @@ class View(ttk.Frame):
     title = ""
     subtitle = ""
     icon = "home"
+    view_key = ""
 
     def __init__(self, master, app: "App"):
         super().__init__(master, style="TFrame")
@@ -49,3 +51,22 @@ class View(ttk.Frame):
     def note(self, parent, text: str) -> tk.Label:
         return tk.Label(parent, text=text, bg=theme.BG, fg=theme.MUTED, font=self.fonts.small,
                         anchor="w", justify="left", wraplength=self.px(900))
+
+    def persist_sash(self, pw: ttk.PanedWindow, name: str, default_px: int) -> None:
+        """Recuerda y restaura la posición de un divisor arrastrable de esta vista."""
+        key = self.view_key or type(self).__name__
+
+        def restore():
+            try:
+                pw.sashpos(0, int(config.get_sash(key, name, self.px(default_px))))
+            except tk.TclError:
+                pass
+
+        def save(_e=None):
+            try:
+                config.set_sash(key, name, pw.sashpos(0))
+            except tk.TclError:
+                pass
+
+        pw.after(80, restore)
+        pw.bind("<ButtonRelease-1>", save, add="+")

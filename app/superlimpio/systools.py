@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from . import winapi
+from . import i18n, winapi
 from .safety import Risk, log_action
 
 
@@ -30,44 +30,28 @@ class SysTool:
         return f"{self.exe} {self.params}".strip()
 
 
-TOOLS: list[SysTool] = [
-    SysTool("storage", "Abrir Almacenamiento de Windows",
-            "Vista oficial de Configuración > Sistema > Almacenamiento.",
-            "ms-settings:storagesense", risk=Risk.BAJO,
-            effect="Solo abre Configuración."),
-    SysTool("apps", "Abrir Aplicaciones instaladas",
-            "Incluye apps de Microsoft Store, que no siempre aparecen en el registro clásico.",
-            "ms-settings:appsfeatures", risk=Risk.BAJO, effect="Solo abre Configuración."),
-    SysTool("taskmgr_startup", "Administrar programas de inicio",
-            "Abre el Administrador de tareas en la pestaña Inicio para desactivar entradas de forma reversible.",
-            "taskmgr.exe", "/0 /startup", risk=Risk.BAJO, effect="Solo abre el Administrador de tareas."),
-    SysTool("cleanmgr", "Liberador de espacio de Windows",
-            "Herramienta clásica de Microsoft (incluye «Limpiar archivos del sistema»).",
-            "cleanmgr.exe", risk=Risk.BAJO, effect="Abre la herramienta; no borra nada hasta que la uses."),
-    SysTool("restore", "Crear punto de restauración",
-            "Abre Protección del sistema. Recomendado antes de desinstalar en masa.",
-            "SystemPropertiesProtection.exe", risk=Risk.BAJO, effect="Solo abre la ventana."),
-    SysTool("analyze_sxs", "Analizar almacén de componentes (WinSxS)",
-            "Informa cuánto se puede recuperar de WinSxS. No modifica nada.",
-            "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore",
-            admin=True, risk=Risk.MEDIO, keep_console=True,
-            effect="Ejecuta DISM en modo análisis (solo lectura) en una consola visible."),
-    SysTool("clean_sxs", "Limpiar componentes de Windows (WinSxS)",
-            "Elimina versiones antiguas de componentes reemplazados por actualizaciones. "
-            "Tras esto no podrás desinstalar esas actualizaciones antiguas.",
-            "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /StartComponentCleanup",
-            admin=True, risk=Risk.CRITICO, keep_console=True,
-            effect="DISM borra componentes antiguos. Puede tardar varios minutos. Irreversible."),
-    SysTool("hiber_off", "Desactivar hibernación (borra hiberfil.sys)",
-            "Libera tantos GB como ~40 % de tu RAM. Desactiva también el «Inicio rápido».",
-            "cmd.exe", "/k powercfg.exe /hibernate off",
-            admin=True, risk=Risk.CRITICO, keep_console=True,
-            effect="Desactiva la hibernación. Reversible con «powercfg /hibernate on»."),
-    SysTool("hiber_on", "Reactivar hibernación",
-            "Vuelve a crear hiberfil.sys y habilita el Inicio rápido.",
-            "cmd.exe", "/k powercfg.exe /hibernate on",
-            admin=True, risk=Risk.ALTO, keep_console=True, effect="Reactiva la hibernación."),
-]
+def _tool(tool_id: str, exe: str, params: str = "", **kw) -> SysTool:
+    return SysTool(tool_id, i18n.t(f"systool.{tool_id}.title"), i18n.t(f"systool.{tool_id}.desc"),
+                   exe, params, effect=i18n.t(f"systool.{tool_id}.effect"), **kw)
+
+
+def tools() -> list[SysTool]:
+    """Lista de herramientas con los textos en el idioma activo."""
+    return [
+        _tool("storage", "ms-settings:storagesense", risk=Risk.BAJO),
+        _tool("apps", "ms-settings:appsfeatures", risk=Risk.BAJO),
+        _tool("taskmgr_startup", "taskmgr.exe", "/0 /startup", risk=Risk.BAJO),
+        _tool("cleanmgr", "cleanmgr.exe", risk=Risk.BAJO),
+        _tool("restore", "SystemPropertiesProtection.exe", risk=Risk.BAJO),
+        _tool("analyze_sxs", "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore",
+              admin=True, risk=Risk.MEDIO, keep_console=True),
+        _tool("clean_sxs", "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /StartComponentCleanup",
+              admin=True, risk=Risk.CRITICO, keep_console=True),
+        _tool("hiber_off", "cmd.exe", "/k powercfg.exe /hibernate off",
+              admin=True, risk=Risk.CRITICO, keep_console=True),
+        _tool("hiber_on", "cmd.exe", "/k powercfg.exe /hibernate on",
+              admin=True, risk=Risk.ALTO, keep_console=True),
+    ]
 
 
 def run_tool(tool: SysTool) -> tuple[bool, str]:

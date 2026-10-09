@@ -7,11 +7,24 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from .. import APP_NAME, __version__, winapi
+from .. import APP_NAME, __version__, config, i18n, winapi
 from ..safety import Risk, log_action
 from ..util import IS_WINDOWS
 from . import dialogs, theme
 from .widgets import ASSETS_DIR, Background, make_icons
+
+# (clave de navegación, clase de vista, clave i18n de la etiqueta)
+_PAGES_SPEC = [
+    ("summary", "SummaryView", "nav.summary"),
+    ("disk", "DiskView", "nav.disk"),
+    ("programs", "ProgramsView", "nav.programs"),
+    ("memory", "MemoryView", "nav.memory"),
+    ("startup", "StartupView", "nav.startup"),
+    ("cleaner", "CleanerView", "nav.cleaner"),
+    ("devdeps", "DevDepsView", "nav.devdeps"),
+    ("tools", "ToolsView", "nav.tools"),
+    ("log", "LogView", "nav.log"),
+]
 
 
 class NavItem(tk.Frame):
@@ -57,28 +70,54 @@ class App:
     def __init__(self) -> None:
         self.root = tk.Tk(className="SuperLimpio")
         self.root._superlimpio_app = self  # para que los diálogos encuentren fuentes/escala
-        self.sf = theme.scale_factor(self.root)
-        self.fonts = theme.Fonts(self.root)
-        self.style = theme.apply_style(self.root, self.fonts, self.sf)
-        self.icons = make_icons(self.root, self.sf)
-        self.bg = Background(self.root)
         self.is_admin = winapi.is_admin()
+        self.bg = Background(self.root)
+        self.current: str | None = None
 
-        self.root.title(f"{APP_NAME} {__version__}" + ("  —  Administrador" if self.is_admin else ""))
         try:  # mismo icono que SuperLimpio.exe, en la barra de título y en la de tareas
             self.root.iconbitmap(default=os.path.join(ASSETS_DIR, "superlimpio.ico"))
         except tk.TclError:
-            self.root.iconphoto(True, self.icons["app"])
-        w, h = int(1280 * self.sf), int(800 * self.sf)
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        w, h = min(w, sw - 40), min(h, sh - 80)
-        self.root.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 3)}")
-        self.root.minsize(int(980 * self.sf), int(620 * self.sf))
+            pass
 
-        self._build_shell()
-        self._build_pages()
+        self.root.minsize(int(760), int(520))
+        self._build_everything(first=True)
+
         log_action("inicio", sys.executable, f"admin={self.is_admin}")
         self.show("summary")
+
+    # ------------------------------------------------------------ construcción
+    def _build_everything(self, first: bool = False) -> None:
+        """Crea (o recrea) fuentes, estilo, iconos y toda la interfaz con el zoom e idioma actuales."""
+        self.zoom = config.get_scale()
+        self.sf = theme.scale_factor(self.root) * self.zoom
+        self.fonts = theme.Fonts(self.root, self.zoom)
+        self.style = theme.apply_style(self.root, self.fonts, self.sf)
+        self.icons = make_icons(self.root, self.sf)
+
+        self.root.title(f"{APP_NAME} {__version__}" + (i18n.t("app.admin_suffix") if self.is_admin else ""))
+        try:
+            self.root.iconphoto(True, self.icons["app"])
+        except tk.TclError:
+            pass
+
+        if first:
+            w, h = int(1280 * self.sf), int(800 * self.sf)
+            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+            w, h = min(w, sw - 40), min(h, sh - 80)
+            self.root.geometry(f"{w}x{h}+{(sw - w) // 2}+{max(0, (sh - h) // 3)}")
+
+        self.pages: dict = {}
+        self._build_shell()
+        self._build_pages()
+
+    def rebuild(self) -> None:
+        """Reconstruye la interfaz tras cambiar el idioma o el tamaño. Se pierde el análisis en curso."""
+        keep = self.current
+        self.current = None
+        for child in list(self.root.winfo_children()):
+            child.destroy()
+        self._build_everything(first=False)
+        self.show(keep or "summary")
 
     # ------------------------------------------------------------------ marco
     def _build_shell(self) -> None:
@@ -94,20 +133,22 @@ class App:
         txt.pack(side="left", padx=int(10 * sf))
         tk.Label(txt, text="Super Limpio", font=self.fonts.brand, fg="#ffffff",
                  bg=theme.SIDEBAR_BG).pack(anchor="w")
-        tk.Label(txt, text=f"v{__version__} · local y sin red", font=self.fonts.small, fg=theme.SIDEBAR_MUTED,
-                 bg=theme.SIDEBAR_BG).pack(anchor="w")
+        tk.Label(txt, text=i18n.t("app.brand_sub", v=__version__), font=self.fonts.small,
+                 fg=theme.SIDEBAR_MUTED, bg=theme.SIDEBAR_BG).pack(anchor="w")
 
         self.nav_frame = tk.Frame(self.sidebar, bg=theme.SIDEBAR_BG)
         self.nav_frame.pack(fill="x")
 
         bottom = tk.Frame(self.sidebar, bg=theme.SIDEBAR_BG)
         bottom.pack(side="bottom", fill="x", padx=int(16 * sf), pady=int(16 * sf))
+        self._build_settings(bottom)
+
         color = theme.WARN if self.is_admin else theme.HIGHLIGHT
-        state = "Administrador" if self.is_admin else "Usuario estándar"
+        state = i18n.t("app.role.admin") if self.is_admin else i18n.t("app.role.user")
         tk.Label(bottom, text=f"{self.fonts.glyph('shield')}  {state}", font=self.fonts.small,
-                 fg=color, bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x")
+                 fg=color, bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x", pady=(int(10 * sf), 0))
         if not self.is_admin and IS_WINDOWS:
-            lnk = tk.Label(bottom, text="Reiniciar como administrador…", font=self.fonts.small,
+            lnk = tk.Label(bottom, text=i18n.t("app.relaunch_admin_link"), font=self.fonts.small,
                            fg=theme.AGUA, bg=theme.SIDEBAR_BG, cursor="hand2", anchor="w")
             lnk.pack(fill="x", pady=(4, 0))
             lnk.bind("<Button-1>", lambda e: self.relaunch_admin())
@@ -124,14 +165,59 @@ class App:
 
         status = tk.Frame(self.main, bg="#e6eee8", height=int(26 * sf))
         status.pack(fill="x", side="bottom")
-        self.status_var = tk.StringVar(value="Listo")
+        self.status_var = tk.StringVar(value=i18n.t("common.ready"))
         tk.Label(status, textvariable=self.status_var, bg="#e6eee8", fg=theme.MUTED,
                  font=self.fonts.small, anchor="w").pack(side="left", padx=int(12 * sf), pady=int(3 * sf))
-        tk.Label(status, text="Todas las acciones piden confirmación · registro en logs\\acciones.log",
+        tk.Label(status, text=i18n.t("app.status_hint"),
                  bg="#e6eee8", fg=theme.MUTED, font=self.fonts.small).pack(side="right", padx=int(12 * sf))
 
         self.content = ttk.Frame(self.main)
         self.content.pack(fill="both", expand=True, padx=int(26 * sf), pady=(0, int(8 * sf)))
+
+    def _build_settings(self, parent: tk.Frame) -> None:
+        """Selector de idioma y control de tamaño de la interfaz (barra lateral, abajo)."""
+        sf = self.sf
+        # Idioma
+        tk.Label(parent, text=i18n.t("app.language"), font=self.fonts.small, fg=theme.SIDEBAR_MUTED,
+                 bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x")
+        names = [name for _code, name in i18n.available()]
+        codes = [code for code, _name in i18n.available()]
+        self._lang_codes = codes
+        self.lang_var = tk.StringVar(value=dict(i18n.available())[i18n.current()])
+        cb = ttk.Combobox(parent, values=names, textvariable=self.lang_var, state="readonly", width=14)
+        cb.pack(fill="x", pady=(2, int(8 * sf)))
+        cb.bind("<<ComboboxSelected>>", self._on_language)
+
+        # Tamaño de la interfaz (zoom)
+        tk.Label(parent, text=i18n.t("app.ui_size"), font=self.fonts.small, fg=theme.SIDEBAR_MUTED,
+                 bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x")
+        row = tk.Frame(parent, bg=theme.SIDEBAR_BG)
+        row.pack(fill="x", pady=(2, 0))
+        ttk.Button(row, text="A−", width=3,
+                   command=lambda: self._change_zoom(-config.SCALE_STEP)).pack(side="left")
+        self.zoom_lbl = tk.Label(row, text=f"{round(self.zoom * 100)} %", font=self.fonts.small,
+                                 fg=theme.SIDEBAR_FG, bg=theme.SIDEBAR_BG, width=6)
+        self.zoom_lbl.pack(side="left", padx=4)
+        ttk.Button(row, text="A+", width=3,
+                   command=lambda: self._change_zoom(config.SCALE_STEP)).pack(side="left")
+
+    def _on_language(self, _e=None) -> None:
+        name = self.lang_var.get()
+        for code, cname in i18n.available():
+            if cname == name and code != i18n.current():
+                config.set("language", code)
+                i18n.set_language(code)
+                log_action("idioma", code)
+                self.rebuild()
+                return
+
+    def _change_zoom(self, delta: float) -> None:
+        new = config.clamp_scale(self.zoom + delta)
+        if abs(new - self.zoom) < 1e-6:
+            return
+        config.set_scale(new)
+        log_action("tamano_ui", f"{new:.2f}")
+        self.rebuild()
 
     def _build_pages(self) -> None:
         from .views.cleaner_view import CleanerView
@@ -144,26 +230,18 @@ class App:
         from .views.summary_view import SummaryView
         from .views.tools_view import ToolsView
 
-        spec = [
-            ("summary", SummaryView, "Resumen"),
-            ("disk", DiskView, "Analizador de disco"),
-            ("programs", ProgramsView, "Programas"),
-            ("memory", MemoryView, "Memoria y procesos"),
-            ("startup", StartupView, "Inicio de Windows"),
-            ("cleaner", CleanerView, "Limpieza"),
-            ("devdeps", DevDepsView, "Librerías de desarrollo"),
-            ("tools", ToolsView, "Herramientas del sistema"),
-            ("log", LogView, "Registro de acciones"),
-        ]
+        classes = {
+            "SummaryView": SummaryView, "DiskView": DiskView, "ProgramsView": ProgramsView,
+            "MemoryView": MemoryView, "StartupView": StartupView, "CleanerView": CleanerView,
+            "DevDepsView": DevDepsView, "ToolsView": ToolsView, "LogView": LogView,
+        }
         # Cada página se construye la primera vez que se visita: la ventana abre antes.
-        self._page_classes = {key: cls for key, cls, _label in spec}
-        self.pages = {}
+        self._page_classes = {key: classes[cls] for key, cls, _k in _PAGES_SPEC}
         self.nav = {}
-        for key, cls, label in spec:
-            item = NavItem(self.nav_frame, self, key, self.fonts.glyph(cls.icon), label)
+        for key, cls, label_key in _PAGES_SPEC:
+            item = NavItem(self.nav_frame, self, key, self.fonts.glyph(classes[cls].icon), i18n.t(label_key))
             item.pack(fill="x")
             self.nav[key] = item
-        self.current: str | None = None
 
     def page(self, key: str):
         page = self.pages.get(key)
@@ -193,12 +271,9 @@ class App:
     def relaunch_admin(self) -> None:
         script = os.path.abspath(sys.argv[0])
         ok = dialogs.confirm(
-            self.root, "Reiniciar como administrador",
-            "Se abrirá una nueva ventana de Super Limpio con permisos de administrador y esta se cerrará. "
-            "Windows mostrará su aviso de Control de cuentas de usuario (UAC).\n\n"
-            "Solo es necesario para limpiar carpetas del sistema, finalizar procesos de otros usuarios "
-            "o ejecutar DISM/powercfg.",
-            details='"{}" {}'.format(*winapi.admin_command(script)).strip(), risk=Risk.ALTO, ok_text="Reiniciar elevado")
+            self.root, i18n.t("app.relaunch.title"), i18n.t("app.relaunch.body"),
+            details='"{}" {}'.format(*winapi.admin_command(script)).strip(), risk=Risk.ALTO,
+            ok_text=i18n.t("app.relaunch.ok"))
         if not ok:
             return
         done, msg = winapi.relaunch_as_admin(script)
@@ -206,7 +281,7 @@ class App:
         if done:
             self.root.after(300, self.root.destroy)
         else:
-            dialogs.error(self.root, "No se pudo elevar", msg)
+            dialogs.error(self.root, i18n.t("app.relaunch.failed"), msg)
 
     def run(self) -> None:
         self.root.mainloop()

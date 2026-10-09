@@ -21,8 +21,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable
 
+from . import i18n
 from .util import IS_WINDOWS
 from .winapi import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
+
+# Marcador interno para los archivos sin extensión (se traduce al mostrarlo)
+NO_EXT = "\0no-ext"
 
 FILES_KEPT_PER_DIR = 60     # archivos individuales que se muestran por carpeta
 ALWAYS_KEEP = 64 * 1024 * 1024  # además, se guarda siempre cualquier archivo >= 64 MB
@@ -156,7 +160,7 @@ def _scan_dir(node: DirNode, w: _Worker) -> tuple[list[DirNode], int]:
                     if 0 < dot < len(name) - 1 and name[:dot].strip("."):
                         ext = name[dot:].lower()
                     else:
-                        ext = "(sin extensión)"
+                        ext = NO_EXT
                     slot = by_ext.get(ext)
                     if slot is None:
                         by_ext[ext] = [size, 1]
@@ -322,59 +326,80 @@ def quick_folder_size(path: str, cancel: threading.Event | None = None) -> tuple
     return total, count
 
 
-# Pistas para entender de un vistazo qué es una carpeta grande
+# Pistas para entender de un vistazo qué es una carpeta grande (valor = clave de i18n)
 FOLDER_HINTS = {
-    "node_modules": "Dependencias npm/Node. Se regeneran con «npm install».",
-    ".venv": "Entorno virtual de Python. Se regenera con pip.",
-    "venv": "Entorno virtual de Python (si contiene pyvenv.cfg).",
-    "__pycache__": "Bytecode de Python. Se regenera solo.",
-    ".gradle": "Caché de Gradle. Regenerable.",
-    ".m2": "Repositorio local de Maven. Regenerable (se descarga de nuevo).",
-    ".nuget": "Paquetes NuGet. Regenerables.",
-    ".cargo": "Toolchain/caché de Rust.",
-    "target": "Salida de compilación (Rust/Maven). Regenerable si es un proyecto.",
-    "winsxs": "Almacén de componentes de Windows. NO borrar; usa «Limpieza de componentes».",
-    "installer": "Instaladores de Windows Installer. NO borrar a mano.",
-    "softwaredistribution": "Descargas de Windows Update. Limpiable desde «Limpieza».",
-    "temp": "Archivos temporales. Normalmente limpiable.",
-    "cache": "Caché. Normalmente regenerable.",
-    "crashdumps": "Volcados de errores de programas. Limpiable.",
-    "steamapps": "Juegos de Steam. Desinstálalos desde Steam.",
-    "docker": "Datos de Docker. Usa «docker system prune».",
-    "wsl": "Discos de WSL. Usa «wsl --unregister» con cuidado.",
-    "onedrive": "Carpeta sincronizada con OneDrive.",
-    "downloads": "Descargas: suele acumular instaladores olvidados.",
-    "descargas": "Descargas: suele acumular instaladores olvidados.",
-    "$recycle.bin": "Papelera de reciclaje. Vacíala desde «Limpieza».",
-    "system volume information": "Puntos de restauración. Gestiónalos desde Protección del sistema.",
-    "packages": "Datos de apps de Microsoft Store. Gestiona desde Configuración > Aplicaciones.",
-    "windowsapps": "Apps de Microsoft Store. Desinstala desde Configuración.",
-    "program files": "Programas instalados. Usa «Programas > Desinstalar».",
-    "program files (x86)": "Programas de 32 bits. Usa «Programas > Desinstalar».",
+    "node_modules": "hint.folder.node_modules",
+    ".venv": "hint.folder.venv_dot",
+    "venv": "hint.folder.venv",
+    "__pycache__": "hint.folder.pycache",
+    ".gradle": "hint.folder.gradle",
+    ".m2": "hint.folder.m2",
+    ".nuget": "hint.folder.nuget",
+    ".cargo": "hint.folder.cargo",
+    "target": "hint.folder.target",
+    "winsxs": "hint.folder.winsxs",
+    "installer": "hint.folder.installer",
+    "softwaredistribution": "hint.folder.softwaredistribution",
+    "temp": "hint.folder.temp",
+    "cache": "hint.folder.cache",
+    "crashdumps": "hint.folder.crashdumps",
+    "steamapps": "hint.folder.steamapps",
+    "docker": "hint.folder.docker",
+    "wsl": "hint.folder.wsl",
+    "onedrive": "hint.folder.onedrive",
+    "downloads": "hint.folder.downloads",
+    "descargas": "hint.folder.downloads",
+    "$recycle.bin": "hint.folder.recyclebin",
+    "system volume information": "hint.folder.svi",
+    "packages": "hint.folder.packages",
+    "windowsapps": "hint.folder.windowsapps",
+    "program files": "hint.folder.programfiles",
+    "program files (x86)": "hint.folder.programfiles86",
 }
 
 FILE_HINTS = {
-    "pagefile.sys": "Memoria virtual de Windows.",
-    "hiberfil.sys": "Hibernación/inicio rápido. Ver «Herramientas del sistema».",
-    "swapfile.sys": "Memoria virtual de apps Store.",
-    "memory.dmp": "Volcado de pantallazo azul. Se puede borrar.",
-    "ext4.vhdx": "Disco de una distro WSL.",
+    "pagefile.sys": "hint.file.pagefile",
+    "hiberfil.sys": "hint.file.hiberfil",
+    "swapfile.sys": "hint.file.swapfile",
+    "memory.dmp": "hint.file.memorydmp",
+    "ext4.vhdx": "hint.file.ext4vhdx",
 }
 
 EXT_HINTS = {
-    ".iso": "Imagen de disco", ".vhdx": "Disco virtual", ".vhd": "Disco virtual",
-    ".vmdk": "Disco de VMware", ".dmp": "Volcado de memoria", ".msi": "Instalador",
-    ".exe": "Ejecutable / instalador", ".zip": "Comprimido", ".7z": "Comprimido",
-    ".rar": "Comprimido", ".mp4": "Vídeo", ".mkv": "Vídeo", ".mov": "Vídeo",
-    ".log": "Registro", ".tmp": "Temporal", ".bak": "Copia de seguridad", ".pst": "Correo Outlook",
-    ".ost": "Caché de Outlook",
+    ".iso": "hint.ext.iso", ".vhdx": "hint.ext.vhdx", ".vhd": "hint.ext.vhdx",
+    ".vmdk": "hint.ext.vmdk", ".dmp": "hint.ext.dmp", ".msi": "hint.ext.msi",
+    ".exe": "hint.ext.exe", ".zip": "hint.ext.archive", ".7z": "hint.ext.archive",
+    ".rar": "hint.ext.archive", ".mp4": "hint.ext.video", ".mkv": "hint.ext.video", ".mov": "hint.ext.video",
+    ".log": "hint.ext.log", ".tmp": "hint.ext.tmp", ".bak": "hint.ext.bak", ".pst": "hint.ext.pst",
+    ".ost": "hint.ext.ost",
 }
 
 
 def hint_for(name: str, is_dir: bool) -> str:
     low = name.lower()
     if is_dir:
-        return FOLDER_HINTS.get(low, "")
-    if low in FILE_HINTS:
-        return FILE_HINTS[low]
-    return EXT_HINTS.get(os.path.splitext(low)[1], "")
+        key = FOLDER_HINTS.get(low)
+    elif low in FILE_HINTS:
+        key = FILE_HINTS[low]
+    else:
+        key = EXT_HINTS.get(os.path.splitext(low)[1])
+    return i18n.t(key) if key else ""
+
+
+def ext_desc(ext: str) -> str:
+    """Descripción traducida de una extensión (o cadena vacía si no hay)."""
+    key = EXT_HINTS.get(ext)
+    return i18n.t(key) if key else ""
+
+
+def ext_display(ext: str) -> str:
+    """Texto a mostrar para una extensión en la tabla «por tipo»."""
+    return i18n.t("scanner.no_ext") if ext == NO_EXT else ext
+
+
+def file_type_label(ext: str) -> str:
+    """Etiqueta de tipo para la columna «Tipo» de la pestaña de archivos."""
+    key = EXT_HINTS.get(ext)
+    if key:
+        return i18n.t(key)
+    return ext.lstrip(".").upper() or i18n.t("util.file")

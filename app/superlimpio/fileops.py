@@ -6,7 +6,7 @@ import os
 import shutil
 import stat
 
-from . import winapi
+from . import i18n, winapi
 from .safety import check_deletable, log_action
 
 
@@ -27,7 +27,7 @@ def recycle(paths: list[str]) -> tuple[bool, str]:
     if blocked:
         msg = "; ".join(f"{p}: {r}" for p, r in blocked)
         log_action("papelera", ", ".join(paths), "bloqueado: " + msg, ok=False)
-        return False, "Operación bloqueada por seguridad:\n" + msg
+        return False, i18n.t("fileops.blocked", msg=msg)
     ok, msg = winapi.send_to_recycle_bin(allowed)
     log_action("papelera", " | ".join(allowed), msg, ok=ok)
     return ok, msg
@@ -47,7 +47,7 @@ def delete_permanently(paths: list[str]) -> tuple[bool, str]:
     if blocked:
         msg = "; ".join(f"{p}: {r}" for p, r in blocked)
         log_action("borrado_definitivo", ", ".join(paths), "bloqueado: " + msg, ok=False)
-        return False, "Operación bloqueada por seguridad:\n" + msg
+        return False, i18n.t("fileops.blocked", msg=msg)
     errors = []
     for p in allowed:
         try:
@@ -65,8 +65,9 @@ def delete_permanently(paths: list[str]) -> tuple[bool, str]:
         except OSError as exc:
             errors.append(f"{p}: {exc.strerror or exc}")
         if os.path.exists(p) and not any(e.startswith(p) for e in errors):
-            errors.append(f"{p}: quedaron elementos en uso o sin permisos")
+            errors.append(i18n.t("fileops.in_use", path=p))
     ok = not errors
-    msg = "Eliminado definitivamente" if ok else "Algunos elementos no se pudieron borrar:\n" + "\n".join(errors[:20])
+    msg = i18n.t("fileops.deleted_perm") if ok else i18n.t("fileops.some_failed",
+                                                           items="\n".join(errors[:20]))
     log_action("borrado_definitivo", " | ".join(allowed), msg, ok=ok)
     return ok, msg

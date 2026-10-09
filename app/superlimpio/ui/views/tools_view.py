@@ -5,20 +5,22 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
+from ... import i18n
 from ...safety import Risk
-from ...systools import TOOLS, SysTool, run_tool
+from ...systools import SysTool, run_tool, tools
 from .. import dialogs, theme
 from ..widgets import Card, badge, risk_badge
 from .base import View
 
 
 class ToolsView(View):
-    title = "Herramientas del sistema"
-    subtitle = "Accesos a herramientas oficiales de Windows. Ves el comando exacto antes de ejecutarlo."
     icon = "tools"
+    view_key = "tools"
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        self.title = i18n.t("tools.title")
+        self.subtitle = i18n.t("tools.subtitle")
         canvas = tk.Canvas(self, bg=theme.BG, highlightthickness=0)
         sb = ttk.Scrollbar(self, orient="vertical", command=canvas.yview)
         holder = ttk.Frame(canvas)
@@ -32,7 +34,7 @@ class ToolsView(View):
             "<MouseWheel>", lambda ev: canvas.yview_scroll(int(-ev.delta / 120), "units")))
         canvas.bind("<Leave>", lambda e: canvas.unbind_all("<MouseWheel>"))
 
-        for tool in TOOLS:
+        for tool in tools():
             card = Card(holder, self.sf, padding=12)
             card.pack(fill="x", pady=(0, self.px(8)), padx=(0, self.px(8)))
             top = tk.Frame(card.inner, bg=theme.CARD)
@@ -40,8 +42,9 @@ class ToolsView(View):
             tk.Label(top, text=tool.title, font=self.fonts.h2, bg=theme.CARD, fg=theme.TEXT).pack(side="left")
             risk_badge(top, tool.risk, self.fonts.small).pack(side="left", padx=self.px(10))
             if tool.admin:
-                badge(top, "Requiere administrador", theme.WARN, "#fdf1df", self.fonts.small).pack(side="left")
-            ttk.Button(top, text="Ejecutar…" if tool.risk > Risk.BAJO else "Abrir",
+                badge(top, i18n.t("tools.requires_admin"), theme.WARN, "#fdf1df",
+                      self.fonts.small).pack(side="left")
+            ttk.Button(top, text=i18n.t("tools.run") if tool.risk > Risk.BAJO else i18n.t("tools.open"),
                        style="Danger.TButton" if tool.risk >= Risk.CRITICO else "TButton",
                        command=lambda t=tool: self.run(t)).pack(side="right")
             tk.Label(card.inner, text=tool.description, font=self.fonts.base, bg=theme.CARD, fg=theme.MUTED,
@@ -53,11 +56,11 @@ class ToolsView(View):
         if tool.risk > Risk.BAJO:
             msg = tool.effect or tool.description
             if tool.admin:
-                msg += ("\n\nWindows mostrará además el aviso de Control de cuentas de usuario (UAC). "
-                        "La consola quedará abierta para que veas el resultado.")
-            if not dialogs.confirm(self, tool.title, msg, tool.command_line, risk=tool.risk, ok_text="Ejecutar"):
+                msg += i18n.t("tools.admin_note")
+            if not dialogs.confirm(self, tool.title, msg, tool.command_line, risk=tool.risk,
+                                   ok_text=i18n.t("tools.run_btn")):
                 return
         ok, m = run_tool(tool)
-        self.status(f"{tool.title}: {m}")
+        self.status(i18n.t("tools.status", title=tool.title, msg=m))
         if not ok:
             dialogs.error(self, tool.title, m)

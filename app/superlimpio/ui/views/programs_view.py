@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from ... import programs, winapi
+from ... import i18n, programs, winapi
 from ...safety import Risk, log_action
 from ...scanner import quick_folder_size
 from ...util import fmt_size
@@ -17,37 +17,42 @@ from .base import View
 
 
 class ProgramsView(View):
-    title = "Programas"
-    subtitle = "Programas instalados con su tamaño real en disco. La desinstalación usa el desinstalador oficial."
     icon = "apps"
+    view_key = "programs"
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        self.title = i18n.t("programs.title")
+        self.subtitle = i18n.t("programs.subtitle")
         self.cancel_ev: threading.Event | None = None
 
         bar = self.toolbar()
-        ttk.Label(bar, text="Buscar").pack(side="left", padx=(0, self.px(6)))
+        ttk.Label(bar, text=i18n.t("common.search")).pack(side="left", padx=(0, self.px(6)))
         self.q = tk.StringVar()
         self.q.trace_add("write", lambda *_: self._apply_filter())
         ttk.Entry(bar, textvariable=self.q, width=32).pack(side="left")
-        ttk.Button(bar, text="Actualizar", command=self.load).pack(side="left", padx=(self.px(8), 0))
-        self.measure_btn = ttk.Button(bar, text="Medir tamaño real", style="Info.TButton",
+        ttk.Button(bar, text=i18n.t("common.refresh"), command=self.load).pack(side="left", padx=(self.px(8), 0))
+        self.measure_btn = ttk.Button(bar, text=i18n.t("programs.measure"), style="Info.TButton",
                                       command=self.measure)
         self.measure_btn.pack(side="left", padx=(self.px(6), 0))
-        self.uninstall_btn = ttk.Button(bar, text="Desinstalar…", style="Danger.TButton",
+        self.uninstall_btn = ttk.Button(bar, text=i18n.t("programs.uninstall"), style="Danger.TButton",
                                         command=self.uninstall)
         self.uninstall_btn.pack(side="right")
-        ttk.Button(bar, text="Abrir ubicación", command=self.open_location).pack(side="right", padx=self.px(6))
-        ttk.Button(bar, text="Apps de Microsoft Store…",
+        ttk.Button(bar, text=i18n.t("common.open_location"), command=self.open_location).pack(
+            side="right", padx=self.px(6))
+        ttk.Button(bar, text=i18n.t("programs.store_apps"),
                    command=lambda: winapi.shell_execute("ms-settings:appsfeatures")).pack(side="right")
 
         self.summary = ttk.Label(self, text="", style="Muted.TLabel")
         self.summary.pack(anchor="w", pady=(0, self.px(6)))
 
-        cols = [("name", "Nombre", 300, "w"), ("size", "Tamaño real", 100, "e"),
-                ("declared", "Declarado", 95, "e"), ("publisher", "Editor", 180, "w"),
-                ("version", "Versión", 110, "w"), ("date", "Instalado", 90, "w"), ("scope", "Ámbito", 120, "w"),
-                ("path", "Ubicación", 300, "w")]
+        cols = [("name", i18n.t("programs.col.name"), 300, "w"), ("size", i18n.t("programs.col.real"), 100, "e"),
+                ("declared", i18n.t("programs.col.declared"), 95, "e"),
+                ("publisher", i18n.t("programs.col.publisher"), 180, "w"),
+                ("version", i18n.t("programs.col.version"), 110, "w"),
+                ("date", i18n.t("programs.col.installed"), 90, "w"),
+                ("scope", i18n.t("programs.col.scope"), 120, "w"),
+                ("path", i18n.t("programs.col.location"), 300, "w")]
         box = ScrollTree(self, cols, sf=self.sf)
         box.pack(fill="both", expand=True)
         self.tree = box.tree
@@ -65,7 +70,7 @@ class ProgramsView(View):
 
         det = tk.Frame(self, bg=theme.CARD, highlightthickness=1, highlightbackground=theme.BORDER)
         det.pack(fill="x", pady=(self.px(8), 0))
-        self.detail = tk.Label(det, text="Selecciona un programa para ver su comando de desinstalación.",
+        self.detail = tk.Label(det, text=i18n.t("programs.detail_hint"),
                                font=self.fonts.mono, bg=theme.CARD, fg=theme.MUTED, anchor="w", justify="left")
         self.detail.pack(fill="x", padx=self.px(12), pady=self.px(8))
 
@@ -74,7 +79,7 @@ class ProgramsView(View):
         p: programs.Program = r["p"]
         real = fmt_size(p.real_size) if p.real_size is not None else ("…" if r.get("measuring") else "—")
         return (p.name, real, fmt_size(p.estimated_size) if p.estimated_size else "—", p.publisher,
-                p.version, p.install_date, p.scope, r["loc"])
+                p.version, p.install_date, p.scope_label, r["loc"])
 
     def _match(self, r) -> bool:
         q = self.q.get().strip().lower()
@@ -91,36 +96,34 @@ class ProgramsView(View):
         self.load()
 
     def load(self) -> None:
-        self.status("Leyendo programas instalados…")
+        self.status(i18n.t("programs.reading"))
         self.app.bg.run(programs.list_installed, on_done=self._loaded,
-                        on_error=lambda e: dialogs.error(self, "Error", str(e)))
+                        on_error=lambda e: dialogs.error(self, i18n.t("common.error"), str(e)))
 
     def _loaded(self, progs: list[programs.Program]) -> None:
         rows = [{"p": p, "loc": p.location_guess} for p in progs]
         self.table.set_rows(rows)
         self._update_summary()
-        self.status(f"{len(rows)} programas encontrados")
+        self.status(i18n.t("programs.found", n=len(rows)))
 
     def _update_summary(self) -> None:
         rows = [r for r in self.table.rows if self._match(r)]
         total = sum(r["p"].best_size for r in rows)
         measured = sum(1 for r in rows if r["p"].real_size is not None)
         self.summary.configure(
-            text=f"{len(rows)} programas · {fmt_size(total)} en total · {measured} medidos en disco. "
-                 "«Declarado» es lo que dice el instalador (a menudo inexacto); «Tamaño real» se mide "
-                 "recorriendo la carpeta del programa.")
+            text=i18n.t("programs.summary", n=len(rows), total=fmt_size(total), measured=measured))
 
     # -------------------------------------------------------------- medir
     def measure(self) -> None:
         if self.cancel_ev and not self.cancel_ev.is_set():
             self.cancel_ev.set()
-            self.measure_btn.configure(text="Medir tamaño real")
+            self.measure_btn.configure(text=i18n.t("programs.measure"))
             return
         rows = [r for r in self.table.rows if r["loc"]]
         if not rows:
             return
         self.cancel_ev = ev = threading.Event()
-        self.measure_btn.configure(text="Detener medición")
+        self.measure_btn.configure(text=i18n.t("programs.measure_stop"))
         for r in rows:
             r["measuring"] = True
         self.table.refresh()
@@ -146,16 +149,16 @@ class ProgramsView(View):
         if i % 5 == 0 or i == n:
             self.table.refresh()
             self._update_summary()
-        self.status(f"Midiendo {i}/{n}: {r['p'].name}")
+        self.status(i18n.t("programs.measuring", i=i, n=n, name=r['p'].name))
 
     def _measure_end(self) -> None:
         for r in self.table.rows:
             r["measuring"] = False
         self.cancel_ev = None
-        self.measure_btn.configure(text="Medir tamaño real")
+        self.measure_btn.configure(text=i18n.t("programs.measure"))
         self.table.refresh()
         self._update_summary()
-        self.status("Medición terminada")
+        self.status(i18n.t("programs.measure_done"))
 
     # ------------------------------------------------------------ acciones
     def _on_select(self, _e=None) -> None:
@@ -164,50 +167,44 @@ class ProgramsView(View):
             return
         p = sel[0]["p"]
         plan = programs.build_uninstall_plan(p)
-        self.detail.configure(text=f"Desinstalador: {plan.display}\nRegistro: {p.reg_key}", fg=theme.TEXT)
+        self.detail.configure(text=i18n.t("programs.detail", cmd=plan.display, key=p.reg_key), fg=theme.TEXT)
 
     def open_location(self) -> None:
         sel = self.table.selected()
         if sel and sel[0]["loc"]:
             winapi.open_in_explorer(sel[0]["loc"])
         elif sel:
-            self.status("Este programa no declara su carpeta de instalación")
+            self.status(i18n.t("programs.no_location"))
 
     def uninstall(self) -> None:
         sel = self.table.selected()
         if not sel:
-            dialogs.info(self, "Desinstalar", "Selecciona un programa de la lista.")
+            dialogs.info(self, i18n.t("programs.uninstall").rstrip("…"), i18n.t("programs.select_one"))
             return
         if len(sel) > 1:
-            dialogs.info(self, "Desinstalar", "Desinstala los programas de uno en uno: cada desinstalador "
-                                              "tiene su propio asistente.")
+            dialogs.info(self, i18n.t("programs.uninstall").rstrip("…"), i18n.t("programs.one_at_a_time"))
             return
         p: programs.Program = sel[0]["p"]
         plan = programs.build_uninstall_plan(p)
-        risk = Risk.CRITICO if any("revisa los parámetros" in w for w in plan.warnings) else Risk.ALTO
-        details = (f"Programa:  {p.name} {p.version}\nEditor:    {p.publisher or '—'}\n"
-                   f"Tamaño:    {fmt_size(p.best_size)}\nComando:   {plan.display}")
+        risk = Risk.CRITICO if plan.critical else Risk.ALTO
+        details = i18n.t("programs.uninstall.detail", name=p.name, version=p.version,
+                         publisher=p.publisher or "—", size=fmt_size(p.best_size), cmd=plan.display)
         if plan.warnings:
-            details += "\n\nAvisos:\n" + "\n".join(f"  • {w}" for w in plan.warnings)
+            details += i18n.t("programs.uninstall.warnings", items="\n".join(f"  • {w}" for w in plan.warnings))
         if not dialogs.confirm(
-                self, f"Desinstalar {p.name}",
-                "Se abrirá el desinstalador oficial de este programa (el mismo que usa Configuración de Windows). "
-                "Sigue sus pasos; Super Limpio no borra archivos ni claves por su cuenta.\n\n"
-                "Consejo: crea un punto de restauración antes si es un programa importante "
-                "(Herramientas del sistema).",
-                details, risk=risk, ok_text="Abrir desinstalador"):
+                self, i18n.t("programs.uninstall_dialog.title", name=p.name),
+                i18n.t("programs.uninstall_dialog.body"),
+                details, risk=risk, ok_text=i18n.t("programs.uninstall_dialog.ok")):
             return
         ok, msg = winapi.shell_execute(plan.exe, plan.params or None, verb="open")
         log_action("desinstalar", p.name, f"{plan.display} -> {msg}", ok=ok)
         if ok:
-            self.status(f"Desinstalador de {p.name} abierto. Pulsa Actualizar cuando termine.")
+            self.status(i18n.t("programs.uninstall.opened", name=p.name))
         else:
-            dialogs.error(self, "No se pudo abrir el desinstalador",
-                          f"{msg}\n\nPrueba desde Configuración > Aplicaciones.")
+            dialogs.error(self, i18n.t("programs.uninstall.failed_title"),
+                          i18n.t("programs.uninstall.failed_body", msg=msg))
 
 
 def _date_key(s: str) -> str:
-    # dd/mm/aaaa -> aaaammdd para ordenar
-    if len(s) == 10 and s[2] == "/" and s[5] == "/":
-        return s[6:] + s[3:5] + s[:2]
+    # Las fechas de instalación ya vienen en ISO (aaaa-mm-dd), que ordena solo.
     return s

@@ -12,32 +12,33 @@ import threading
 from dataclasses import dataclass
 from typing import Callable
 
+from . import i18n
 from .scanner import _is_link_or_junction, quick_folder_size
 
-# nombre -> (tipo, archivo marcador requerido dentro/junto (None = sin requisito), dónde buscarlo)
+# nombre -> (clave i18n del tipo, archivo marcador requerido (None = sin requisito), dónde buscarlo)
 RULES: dict[str, tuple[str, str | None, str]] = {
-    "node_modules": ("Dependencias Node (npm/yarn/pnpm)", None, ""),
-    ".venv": ("Entorno virtual Python", "pyvenv.cfg", "inside"),
-    "venv": ("Entorno virtual Python", "pyvenv.cfg", "inside"),
-    "env": ("Entorno virtual Python", "pyvenv.cfg", "inside"),
-    "__pycache__": ("Bytecode Python", None, ""),
-    ".pytest_cache": ("Caché de pytest", None, ""),
-    ".mypy_cache": ("Caché de mypy", None, ""),
-    ".ruff_cache": ("Caché de ruff", None, ""),
-    ".tox": ("Entornos tox", None, ""),
-    "target": ("Compilación Rust/Maven", "Cargo.toml|pom.xml", "sibling"),
-    ".gradle": ("Caché Gradle del proyecto", "build.gradle|build.gradle.kts|settings.gradle", "sibling"),
-    "build": ("Compilación Gradle/CMake", "build.gradle|build.gradle.kts|CMakeLists.txt", "sibling"),
-    ".next": ("Compilación Next.js", "package.json", "sibling"),
-    ".nuxt": ("Compilación Nuxt", "package.json", "sibling"),
-    ".angular": ("Caché Angular", "angular.json", "sibling"),
-    ".parcel-cache": ("Caché Parcel", None, ""),
-    ".turbo": ("Caché Turborepo", None, ""),
-    "obj": (".NET intermedios", "*.csproj|*.fsproj|*.vbproj", "sibling"),
-    "bin": (".NET compilados", "*.csproj|*.fsproj|*.vbproj", "sibling"),
-    "dist-newstyle": ("Compilación Haskell", None, ""),
-    ".dart_tool": ("Herramientas Dart/Flutter", "pubspec.yaml", "sibling"),
-    "Pods": ("Dependencias CocoaPods", "Podfile", "sibling"),
+    "node_modules": ("devkind.node", None, ""),
+    ".venv": ("devkind.venv", "pyvenv.cfg", "inside"),
+    "venv": ("devkind.venv", "pyvenv.cfg", "inside"),
+    "env": ("devkind.venv", "pyvenv.cfg", "inside"),
+    "__pycache__": ("devkind.pycache", None, ""),
+    ".pytest_cache": ("devkind.pytest", None, ""),
+    ".mypy_cache": ("devkind.mypy", None, ""),
+    ".ruff_cache": ("devkind.ruff", None, ""),
+    ".tox": ("devkind.tox", None, ""),
+    "target": ("devkind.rustmaven", "Cargo.toml|pom.xml", "sibling"),
+    ".gradle": ("devkind.gradlecache", "build.gradle|build.gradle.kts|settings.gradle", "sibling"),
+    "build": ("devkind.gradlecmake", "build.gradle|build.gradle.kts|CMakeLists.txt", "sibling"),
+    ".next": ("devkind.next", "package.json", "sibling"),
+    ".nuxt": ("devkind.nuxt", "package.json", "sibling"),
+    ".angular": ("devkind.angular", "angular.json", "sibling"),
+    ".parcel-cache": ("devkind.parcel", None, ""),
+    ".turbo": ("devkind.turbo", None, ""),
+    "obj": ("devkind.dotnet_obj", "*.csproj|*.fsproj|*.vbproj", "sibling"),
+    "bin": ("devkind.dotnet_bin", "*.csproj|*.fsproj|*.vbproj", "sibling"),
+    "dist-newstyle": ("devkind.haskell", None, ""),
+    ".dart_tool": ("devkind.dart", "pubspec.yaml", "sibling"),
+    "Pods": ("devkind.cocoapods", "Podfile", "sibling"),
 }
 
 SKIP_DIRS = {"$recycle.bin", "system volume information", "windows", "program files",
@@ -100,7 +101,7 @@ def find_artifacts(root: str,
                 continue
             rule = RULES.get(e.name) or RULES.get(e.name.lower())
             if rule and _marker_ok(cur, e.name, rule[1], rule[2]):
-                art = DevArtifact(e.path, rule[0], cur)
+                art = DevArtifact(e.path, i18n.t(rule[0]), cur)
                 try:
                     art.mtime = e.stat(follow_symlinks=False).st_mtime
                 except OSError:

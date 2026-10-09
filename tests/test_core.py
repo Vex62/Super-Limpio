@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-from superlimpio import cleaner, devdeps, scanner  # noqa: E402
+from superlimpio import cleaner, devdeps, i18n, scanner  # noqa: E402
 from superlimpio.programs import Program, build_uninstall_plan, split_command  # noqa: E402
 from superlimpio.safety import check_deletable  # noqa: E402
 from superlimpio.util import fmt_size, text_bar  # noqa: E402
@@ -85,11 +85,21 @@ class ScannerTests(unittest.TestCase):
 
 
 class FormatTests(unittest.TestCase):
-    def test_sizes(self):
+    def tearDown(self):
+        i18n.set_language("en")
+
+    def test_sizes_english(self):
+        i18n.set_language("en")
         self.assertEqual(fmt_size(512), "512 B")
+        self.assertEqual(fmt_size(1536), "1.5 KB")
+        self.assertEqual(fmt_size(5 * 1024 ** 3), "5.0 GB")
+        self.assertEqual(text_bar(1, 2, 10), "█████░░░░░")
+
+    def test_sizes_spanish(self):
+        i18n.set_language("es")
         self.assertEqual(fmt_size(1536), "1,5 KB")
         self.assertEqual(fmt_size(5 * 1024 ** 3), "5,0 GB")
-        self.assertEqual(text_bar(1, 2, 10), "█████░░░░░")
+        self.assertEqual(fmt_size(1500 * 1024 ** 2), "1,5 GB")
 
 
 class SafetyTests(unittest.TestCase):
@@ -185,6 +195,72 @@ class CleanerTests(unittest.TestCase):
     def test_categories_are_well_formed(self):
         ids = [c.id for c in cleaner.default_categories()]
         self.assertEqual(len(ids), len(set(ids)))
+
+
+class ResilienceTests(unittest.TestCase):
+    """Config atómica, tolerancia a corrupción y modo de recuperación."""
+
+    def setUp(self):
+        from superlimpio import config
+        self.config = config
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = os.path.join(self.tmp.name, "superlimpio.config.json")
+        self._orig = config._candidate_paths
+        config._candidate_paths = lambda: [self.cfg]
+        config._data = None
+        config._path = None
+
+    def tearDown(self):
+        self.config._candidate_paths = self._orig
+        self.config._data = None
+        self.config._path = None
+        self.tmp.cleanup()
+
+    def test_backup_created_on_second_write(self):
+        self.config.set("language", "es")
+        self.assertTrue(os.path.exists(self.cfg))
+        self.assertFalse(os.path.exists(self.cfg + ".tmp"))  # el temporal no queda
+        self.config.set("language", "en")
+        self.assertTrue(os.path.exists(self.cfg + ".bak"))
+
+    def test_recovers_from_corrupt_primary_via_backup(self):
+        self.config.set("language", "es")
+        self.config.set("language", "en")   # .bak guarda "es"; primario = "en"
+        with open(self.cfg, "w", encoding="utf-8") as fh:
+            fh.write("{ esto no es json valido")
+        self.config._data = None
+        self.config._path = None
+        self.assertEqual(self.config.get("language"), "es")  # recuperado del .bak
+
+    def test_corrupt_without_backup_resets_and_quarantines(self):
+        self.config.set("language", "es")   # una sola escritura: no hay .bak
+        with open(self.cfg, "w", encoding="utf-8") as fh:
+            fh.write("roto")
+        self.config._data = None
+        self.config._path = None
+        self.assertIsNone(self.config.get("language"))        # valores por defecto
+        self.assertTrue(os.path.exists(self.cfg + ".corrupt"))
+
+    def test_recovery_flag_cycle(self):
+        from superlimpio import recovery
+        recovery.mark_started()
+        self.assertFalse(recovery.pending_recovery())
+        recovery.mark_starting()
+        self.assertTrue(recovery.pending_recovery())
+        recovery.mark_started()
+        self.assertFalse(recovery.pending_recovery())
+
+    def test_repair_resets_config(self):
+        from superlimpio import recovery
+        orig_clear = recovery._clear_bytecode_caches
+        recovery._clear_bytecode_caches = lambda: 0   # no tocar cachés reales en el test
+        try:
+            self.config.set_scale(1.5)
+            self.assertEqual(self.config.get_scale(), 1.5)
+            recovery.repair("test")
+            self.assertEqual(self.config.get_scale(), 1.0)
+        finally:
+            recovery._clear_bytecode_caches = orig_clear
 
 
 if __name__ == "__main__":

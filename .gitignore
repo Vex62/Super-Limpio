@@ -13,3 +13,12 @@ logs/
 dist/
 build/
 SuperLimpio.exe
+
+# Preferencias del usuario (idioma, tamaño, divisores)
+superlimpio.config.json
+
+# Blindaje: manifiesto de integridad firmado (lo genera tools\firmar.py al publicar)
+# y claves de firma (la privada NUNCA debe subirse al repositorio)
+app/superlimpio/_integrity/
+*.hex
+clave_firma*

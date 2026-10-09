@@ -17,6 +17,7 @@ import threading
 from dataclasses import dataclass
 from enum import IntEnum
 
+from . import i18n
 from .util import APP_ROOT, IS_WINDOWS, LOG_DIR, expand, norm_key
 
 
@@ -28,11 +29,12 @@ class Risk(IntEnum):
 
     @property
     def label(self) -> str:
-        return {1: "Bajo", 2: "Medio", 3: "Alto", 4: "Crítico"}[int(self)]
+        return i18n.t(f"risk.{int(self)}")
 
 
-# Palabra que el usuario debe escribir para acciones críticas
-CONFIRM_WORD = "CONFIRMAR"
+def confirm_word() -> str:
+    """Palabra que el usuario debe escribir para acciones críticas (según el idioma)."""
+    return i18n.t("confirm.word")
 
 # Procesos que nunca se deben finalizar (el sistema se cuelga o reinicia)
 PROTECTED_PROCESSES = {
@@ -95,9 +97,9 @@ _EXACT, _TREE = _protected_roots()
 _PER_DRIVE_SYSTEM_DIRS = {"system volume information", "$recycle.bin"}
 
 _SYSTEM_FILE_HINTS = {
-    "pagefile.sys": "Archivo de paginación (memoria virtual). Ajústalo en Sistema > Configuración avanzada > Rendimiento.",
-    "hiberfil.sys": "Archivo de hibernación. Se elimina desactivando la hibernación en «Herramientas del sistema».",
-    "swapfile.sys": "Memoria virtual de apps modernas. Lo gestiona Windows.",
+    "pagefile.sys": "safety.file.pagefile",
+    "hiberfil.sys": "safety.file.hiberfil",
+    "swapfile.sys": "safety.file.swapfile",
 }
 
 
@@ -110,45 +112,43 @@ class DeleteCheck:
 def check_deletable(path: str) -> DeleteCheck:
     """Comprueba si una ruta se puede borrar. Las rutas del sistema se bloquean siempre."""
     if not path:
-        return DeleteCheck(False, "Ruta vacía")
+        return DeleteCheck(False, i18n.t("safety.empty_path"))
     key = norm_key(path)
     # Raíz de unidad
     drive, rest = os.path.splitdrive(os.path.abspath(path))
     if rest.strip("\\/") == "":
-        return DeleteCheck(False, "No se puede borrar la raíz de una unidad.")
+        return DeleteCheck(False, i18n.t("safety.drive_root"))
     # Carpetas del sistema que existen en la raíz de TODAS las unidades
     if rest.strip("\\/").split(os.sep)[0].lower() in _PER_DRIVE_SYSTEM_DIRS:
-        return DeleteCheck(False, "Carpeta del sistema de la unidad (papelera o puntos de restauración). "
-                                  "Vacía la papelera desde «Limpieza».")
+        return DeleteCheck(False, i18n.t("safety.per_drive_system"))
     base = os.path.basename(key)
     if base in _SYSTEM_FILE_HINTS:
-        return DeleteCheck(False, _SYSTEM_FILE_HINTS[base])
+        return DeleteCheck(False, i18n.t(_SYSTEM_FILE_HINTS[base]))
     if key in _EXACT:
-        return DeleteCheck(False, "Es una carpeta esencial del sistema o de tu perfil de usuario.")
+        return DeleteCheck(False, i18n.t("safety.essential"))
     for root in _TREE:
         if key == root or key.startswith(root + os.sep):
             if "program files" in root:
-                return DeleteCheck(False, "Está dentro de Archivos de programa. Usa «Programas > Desinstalar» "
-                                          "para quitar software sin romper Windows.")
+                return DeleteCheck(False, i18n.t("safety.program_files"))
             if root == norm_key(str(APP_ROOT)):
-                return DeleteCheck(False, "Forma parte de la propia aplicación Super Limpio.")
-            return DeleteCheck(False, "Está en una zona protegida del sistema operativo.")
+                return DeleteCheck(False, i18n.t("safety.own_app"))
+            return DeleteCheck(False, i18n.t("safety.protected_zone"))
     # Ninguna carpeta que contenga una zona protegida
     for root in _TREE | _EXACT:
         if root.startswith(key + os.sep):
-            return DeleteCheck(False, "Contiene carpetas protegidas del sistema.")
+            return DeleteCheck(False, i18n.t("safety.contains_protected"))
     return DeleteCheck(True)
 
 
 def check_process_kill(name: str, pid: int) -> tuple[bool, Risk, str]:
     n = name.lower()
     if pid in (0, 4) or n in PROTECTED_PROCESSES:
-        return False, Risk.CRITICO, "Proceso esencial de Windows: finalizarlo puede colgar o reiniciar el equipo."
+        return False, Risk.CRITICO, i18n.t("safety.proc.essential")
     if pid == os.getpid():
-        return False, Risk.ALTO, "Es la propia aplicación."
+        return False, Risk.ALTO, i18n.t("safety.proc.self")
     if n in SENSITIVE_PROCESSES:
-        return True, Risk.ALTO, "Componente de la interfaz de Windows: el escritorio puede desaparecer unos segundos."
-    return True, Risk.MEDIO, "Se perderán los datos no guardados de ese programa."
+        return True, Risk.ALTO, i18n.t("safety.proc.sensitive")
+    return True, Risk.MEDIO, i18n.t("safety.proc.normal")
 
 
 # =========================================================================

@@ -12,7 +12,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from ... import fileops, scanner, winapi
+from ... import fileops, i18n, scanner, winapi
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_pct, fmt_size, text_bar
 from .. import dialogs, theme
@@ -24,22 +24,24 @@ PAGE = 400   # filas que se añaden de una vez al desplegar una carpeta
 
 
 class DiskView(View):
-    title = "Analizador de disco"
-    subtitle = "Cuánto pesa realmente cada carpeta, ordenado de mayor a menor."
     icon = "drive"
+    view_key = "disk"
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        self.title = i18n.t("disk.title")
+        self.subtitle = i18n.t("disk.subtitle")
         self.result: scanner.ScanResult | None = None
         self.cancel_ev: threading.Event | None = None
         self.items: dict[str, tuple] = {}   # iid -> ("dir", node) | ("file", node, rec) | ("rest", node)
         self.node_iid: dict[int, str] = {}  # id(node) -> iid
+        self._deleting = False
 
         # ---- barra de direcciones (estilo Explorador)
         bar = self.toolbar()
         drives = winapi.list_drives()
         self.path_var = tk.StringVar(value=drives[0] if drives else os.path.expanduser("~"))
-        ttk.Label(bar, text="Ubicación").pack(side="left", padx=(0, self.px(6)))
+        ttk.Label(bar, text=i18n.t("disk.location")).pack(side="left", padx=(0, self.px(6)))
         self.drive_cb = ttk.Combobox(bar, values=drives, width=6, state="readonly")
         if drives:
             self.drive_cb.set(drives[0])
@@ -48,11 +50,11 @@ class DiskView(View):
         ent = ttk.Entry(bar, textvariable=self.path_var)
         ent.pack(side="left", fill="x", expand=True, padx=self.px(6))
         ent.bind("<Return>", lambda e: self.start_scan(self.path_var.get()))
-        ttk.Button(bar, text="Examinar…", command=self._browse).pack(side="left")
-        self.scan_btn = ttk.Button(bar, text="Analizar", style="Accent.TButton",
+        ttk.Button(bar, text=i18n.t("common.browse"), command=self._browse).pack(side="left")
+        self.scan_btn = ttk.Button(bar, text=i18n.t("common.analyze"), style="Accent.TButton",
                                    command=lambda: self.start_scan(self.path_var.get()))
         self.scan_btn.pack(side="left", padx=(self.px(6), 0))
-        self.cancel_btn = ttk.Button(bar, text="Detener", command=self._cancel)
+        self.cancel_btn = ttk.Button(bar, text=i18n.t("common.stop"), command=self._cancel)
         self.cancel_btn.pack(side="left", padx=(self.px(6), 0))
         self.cancel_btn.state(["disabled"])
 
@@ -60,34 +62,38 @@ class DiskView(View):
         prog.pack(fill="x", pady=(0, self.px(8)))
         self.pbar = ttk.Progressbar(prog, mode="indeterminate", length=self.px(160))
         self.pbar.pack(side="left")
-        self.prog_lbl = ttk.Label(prog, text="Elige una unidad o carpeta y pulsa Analizar.", style="Muted.TLabel")
+        self.prog_lbl = ttk.Label(prog, text=i18n.t("disk.prompt"), style="Muted.TLabel")
         self.prog_lbl.pack(side="left", padx=self.px(10), fill="x", expand=True)
         legend = tk.Frame(prog, bg=theme.BG)
         legend.pack(side="right")
-        for color, txt in ((theme.ROW_MID, "≥100 MB"), (theme.ROW_BIG, "≥1 GB"), (theme.ROW_HUGE, "≥10 GB")):
+        for color, txt in ((theme.ROW_MID, i18n.t("disk.legend.mid")), (theme.ROW_BIG, i18n.t("disk.legend.big")),
+                           (theme.ROW_HUGE, i18n.t("disk.legend.huge"))):
             tk.Label(legend, text="   ", bg=color, highlightthickness=1,
                      highlightbackground=theme.BORDER).pack(side="left", padx=(self.px(8), 3))
             tk.Label(legend, text=txt, bg=theme.BG, fg=theme.MUTED, font=self.fonts.small).pack(side="left")
 
-        # ---- pestañas
-        self.nb = ttk.Notebook(self)
-        self.nb.pack(fill="both", expand=True)
+        # ---- panel divisible: tablas arriba, detalles abajo (ambos redimensionables)
+        split = ttk.PanedWindow(self, orient="vertical")
+        split.pack(fill="both", expand=True)
 
-        cols = [("size", "Tamaño", 95, "e"), ("bar", "Uso", 120, "w"), ("pct", "%", 60, "e"),
-                ("files", "Archivos", 85, "e"), ("mtime", "Modificado", 125, "w"),
-                ("hint", "Qué es", 300, "w")]
-        self.tree_box = ScrollTree(self.nb, cols, show_tree=True, sf=self.sf, tree_heading="Nombre",
-                                   tree_width=340)
+        self.nb = ttk.Notebook(split)
+
+        cols = [("size", i18n.t("disk.col.size"), 95, "e"), ("bar", i18n.t("disk.col.usage"), 120, "w"),
+                ("pct", "%", 60, "e"), ("files", i18n.t("disk.col.files"), 85, "e"),
+                ("mtime", i18n.t("disk.col.modified"), 125, "w"), ("hint", i18n.t("disk.col.what"), 300, "w")]
+        self.tree_box = ScrollTree(self.nb, cols, show_tree=True, sf=self.sf,
+                                   tree_heading=i18n.t("disk.col.name"), tree_width=340)
         self.tree = self.tree_box.tree
-        self.nb.add(self.tree_box, text="  Carpetas  ")
+        self.nb.add(self.tree_box, text=i18n.t("disk.tab.folders"))
         self.tree.bind("<<TreeviewOpen>>", self._on_open)
         self.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.tree.bind("<Button-3>", self._context_menu)
         self.tree.bind("<Double-1>", self._on_double)
         self.tree.bind("<Delete>", lambda e: self._recycle())
 
-        fcols = [("name", "Archivo", 260, "w"), ("size", "Tamaño", 95, "e"), ("type", "Tipo", 150, "w"),
-                 ("mtime", "Modificado", 125, "w"), ("folder", "Carpeta", 420, "w")]
+        fcols = [("name", i18n.t("disk.col.file"), 260, "w"), ("size", i18n.t("disk.col.size"), 95, "e"),
+                 ("type", i18n.t("disk.col.type"), 150, "w"), ("mtime", i18n.t("disk.col.modified"), 125, "w"),
+                 ("folder", i18n.t("disk.col.folder"), 420, "w")]
         self.files_box = ScrollTree(self.nb, fcols, sf=self.sf)
         self.files_tbl = SortableTable(
             self.files_box.tree,
@@ -96,63 +102,67 @@ class DiskView(View):
                        "mtime": lambda r: r["mtime"], "folder": lambda r: r["folder"].lower(),
                        "type": lambda r: r["type"]},
             default_sort="size", tag_fn=lambda r: (theme.size_tag(r["size"]),), key_fn=lambda r: r["path"])
-        self.nb.add(self.files_box, text="  Archivos más grandes  ")
+        self.nb.add(self.files_box, text=i18n.t("disk.tab.files"))
         self.files_box.tree.bind("<Button-3>", self._context_menu)
         self.files_box.tree.bind("<<TreeviewSelect>>", self._on_select)
         self.files_box.tree.bind("<Delete>", lambda e: self._recycle())
 
-        tcols = [("ext", "Tipo", 160, "w"), ("size", "Tamaño", 100, "e"), ("bar", "Uso", 140, "w"),
-                 ("pct", "%", 70, "e"), ("count", "Archivos", 100, "e"), ("desc", "Descripción", 300, "w")]
+        tcols = [("ext", i18n.t("disk.col.type"), 160, "w"), ("size", i18n.t("disk.col.size"), 100, "e"),
+                 ("bar", i18n.t("disk.col.usage"), 140, "w"), ("pct", "%", 70, "e"),
+                 ("count", i18n.t("disk.col.count"), 100, "e"), ("desc", i18n.t("disk.col.desc"), 300, "w")]
         self.types_box = ScrollTree(self.nb, tcols, sf=self.sf, selectmode="browse")
         self.types_tbl = SortableTable(
             self.types_box.tree,
-            render=lambda r: (r["ext"], fmt_size(r["size"]), text_bar(r["size"], r["total"], 14),
+            render=lambda r: (scanner.ext_display(r["ext"]), fmt_size(r["size"]),
+                              text_bar(r["size"], r["total"], 14),
                               fmt_pct(r["size"], r["total"]), fmt_count(r["count"]), r["desc"]),
             sort_keys={"ext": lambda r: r["ext"], "size": lambda r: r["size"], "count": lambda r: r["count"]},
             default_sort="size")
-        self.nb.add(self.types_box, text="  Por tipo de archivo  ")
+        self.nb.add(self.types_box, text=i18n.t("disk.tab.types"))
 
         # ---- panel de detalles / acciones
-        det = tk.Frame(self, bg=theme.CARD, highlightthickness=1, highlightbackground=theme.BORDER)
-        det.pack(fill="x", pady=(self.px(8), 0))
+        det = tk.Frame(split, bg=theme.CARD, highlightthickness=1, highlightbackground=theme.BORDER)
         inner = tk.Frame(det, bg=theme.CARD)
         inner.pack(fill="x", padx=self.px(12), pady=self.px(8))
-        self.sel_name = tk.Label(inner, text="Nada seleccionado", font=self.fonts.bold, bg=theme.CARD,
-                                 fg=theme.TEXT, anchor="w")
+        self.sel_name = tk.Label(inner, text=i18n.t("common.nothing_selected"), font=self.fonts.bold,
+                                 bg=theme.CARD, fg=theme.TEXT, anchor="w")
         self.sel_name.pack(side="left")
         self.sel_info = tk.Label(inner, text="", font=self.fonts.small, bg=theme.CARD, fg=theme.MUTED,
                                  anchor="w")
         self.sel_info.pack(side="left", padx=self.px(10), fill="x", expand=True)
-        self.btn_del = ttk.Button(inner, text="Eliminar definitivamente…", style="Danger.TButton",
+        self.btn_del = ttk.Button(inner, text=i18n.t("common.delete_perm"), style="Danger.TButton",
                                   command=self._delete_perm)
         self.btn_del.pack(side="right")
-        self.btn_rec = ttk.Button(inner, text="Enviar a la Papelera…", command=self._recycle)
+        self.btn_rec = ttk.Button(inner, text=i18n.t("common.recycle"), command=self._recycle)
         self.btn_rec.pack(side="right", padx=self.px(6))
-        self.btn_scan_here = ttk.Button(inner, text="Analizar aquí", command=self._scan_here)
+        self.btn_scan_here = ttk.Button(inner, text=i18n.t("disk.scan_here"), command=self._scan_here)
         self.btn_scan_here.pack(side="right")
-        self.btn_open = ttk.Button(inner, text="Abrir en Explorador", command=self._open)
+        self.btn_open = ttk.Button(inner, text=i18n.t("common.open_explorer"), command=self._open)
         self.btn_open.pack(side="right", padx=self.px(6))
         self._set_actions(False)
 
+        split.add(self.nb, weight=1)
+        split.add(det, weight=0)
+
         self.menu = tk.Menu(self, tearoff=False)
-        self.menu.add_command(label="Abrir en el Explorador", command=self._open)
-        self.menu.add_command(label="Copiar ruta", command=self._copy_path)
-        self.menu.add_command(label="Analizar esta carpeta", command=self._scan_here)
+        self.menu.add_command(label=i18n.t("common.open_explorer"), command=self._open)
+        self.menu.add_command(label=i18n.t("common.copy_path"), command=self._copy_path)
+        self.menu.add_command(label=i18n.t("disk.scan_this_folder"), command=self._scan_here)
         self.menu.add_separator()
-        self.menu.add_command(label="Enviar a la Papelera…", command=self._recycle)
-        self.menu.add_command(label="Eliminar definitivamente…", command=self._delete_perm)
+        self.menu.add_command(label=i18n.t("common.recycle"), command=self._recycle)
+        self.menu.add_command(label=i18n.t("common.delete_perm"), command=self._delete_perm)
 
     # ================================================================ escaneo
     def _browse(self) -> None:
         d = filedialog.askdirectory(parent=self, initialdir=self.path_var.get() or None,
-                                    title="Carpeta a analizar")
+                                    title=i18n.t("disk.browse_title"))
         if d:
             self.path_var.set(os.path.normpath(d))
 
     def start_scan(self, path: str) -> None:
         path = (path or "").strip().strip('"')
         if not path or not os.path.isdir(path):
-            dialogs.error(self, "Ruta no válida", f"No existe la carpeta:\n{path}")
+            dialogs.error(self, i18n.t("disk.invalid_path"), i18n.t("disk.no_folder", path=path))
             return
         if self.cancel_ev:
             self.cancel_ev.set()
@@ -161,13 +171,13 @@ class DiskView(View):
         self.scan_btn.state(["disabled"])
         self.cancel_btn.state(["!disabled"])
         self.pbar.start(12)
-        self.prog_lbl.configure(text=f"Analizando {path} …")
-        self.status(f"Analizando {path}")
+        self.prog_lbl.configure(text=i18n.t("disk.analyzing", path=path))
+        self.status(i18n.t("disk.analyzing_status", path=path))
         ev = self.cancel_ev
 
         def progress(p: scanner.ScanProgress):
-            txt = (f"{fmt_count(p.files)} archivos · {fmt_count(p.dirs)} carpetas · {fmt_size(p.bytes)} · "
-                   f"{p.elapsed:.0f} s   {p.current[-90:]}")
+            txt = i18n.t("disk.scan_progress", files=fmt_count(p.files), dirs=fmt_count(p.dirs),
+                         bytes=fmt_size(p.bytes), secs=f"{p.elapsed:.0f}", current=p.current[-90:])
             self.app.bg.call_in_ui(self.prog_lbl.configure, {"text": txt})
 
         self.app.bg.run(lambda: scanner.scan(path, progress, ev),
@@ -176,11 +186,11 @@ class DiskView(View):
     def _cancel(self) -> None:
         if self.cancel_ev:
             self.cancel_ev.set()
-            self.prog_lbl.configure(text="Deteniendo…")
+            self.prog_lbl.configure(text=i18n.t("disk.stopping"))
 
     def _scan_failed(self, exc: BaseException) -> None:
         self._end_progress()
-        dialogs.error(self, "Error al analizar", str(exc))
+        dialogs.error(self, i18n.t("disk.scan_error"), str(exc))
 
     def _end_progress(self) -> None:
         self.pbar.stop()
@@ -192,19 +202,19 @@ class DiskView(View):
         self.result = res
         extra = []
         if res.cancelled:
-            extra.append("análisis detenido: resultados parciales")
+            extra.append(i18n.t("disk.extra.cancelled"))
         if res.errors:
-            extra.append(f"{fmt_count(res.errors)} elementos sin permiso de lectura"
-                         + ("" if self.app.is_admin else " (prueba como administrador)"))
+            extra.append(i18n.t("disk.extra.errors", n=fmt_count(res.errors))
+                         + ("" if self.app.is_admin else i18n.t("disk.extra.errors_admin")))
         if res.cloud_size:
-            extra.append(f"{fmt_size(res.cloud_size)} solo en la nube (no ocupan disco)")
+            extra.append(i18n.t("disk.extra.cloud", size=fmt_size(res.cloud_size)))
         if res.skipped_links:
-            extra.append(f"{fmt_count(res.skipped_links)} enlaces/junctions no seguidos")
+            extra.append(i18n.t("disk.extra.links", n=fmt_count(res.skipped_links)))
         self.prog_lbl.configure(
-            text=f"{fmt_size(res.root.size)} en {fmt_count(res.root.files)} archivos y "
-                 f"{fmt_count(res.root.dirs)} carpetas · {res.elapsed:.1f} s"
-                 + ("   ·   " + " · ".join(extra) if extra else ""))
-        self.status(f"Análisis completado: {res.root.path}")
+            text=i18n.t("disk.result_summary", size=fmt_size(res.root.size), files=fmt_count(res.root.files),
+                        dirs=fmt_count(res.root.dirs), secs=f"{res.elapsed:.1f}")
+            + ("   ·   " + " · ".join(extra) if extra else ""))
+        self.status(i18n.t("disk.scan_done_status", path=res.root.path))
         self._fill_tree()
         self._fill_files()
         self._fill_types()
@@ -224,9 +234,9 @@ class DiskView(View):
     def _dir_values(self, node: scanner.DirNode, parent_size: int) -> tuple:
         hint = scanner.hint_for(node.name, True)
         if node.errors and not hint:
-            hint = "Algunas subcarpetas no se pudieron leer"
+            hint = i18n.t("disk.subdirs_unreadable")
         if node.cloud_size and not hint:
-            hint = f"+{fmt_size(node.cloud_size)} solo en la nube"
+            hint = i18n.t("disk.cloud_extra", size=fmt_size(node.cloud_size))
         return (fmt_size(node.size), text_bar(node.size, parent_size), fmt_pct(node.size, parent_size),
                 fmt_count(node.files), fmt_date(node.mtime), hint)
 
@@ -268,20 +278,20 @@ class DiskView(View):
         rest = entries[PAGE:]
         if rest:
             left = sum(e[0] for e in rest)
-            mid = self.tree.insert(iid, "end", text=f" Mostrar más ({fmt_count(len(rest))} restantes)…",
+            mid = self.tree.insert(iid, "end", text=i18n.t("disk.show_more", n=fmt_count(len(rest))),
                                    image=self.app.icons["group"],
                                    values=(fmt_size(left), text_bar(left, node.size), fmt_pct(left, node.size),
-                                           "", "", "Pulsa aquí para cargar los siguientes"),
+                                           "", "", i18n.t("disk.show_more_hint")),
                                    tags=("muted", "bar"))
             self.items[mid] = ("more", node, rest)
             return
         if node.small_files_count:
-            rid = self.tree.insert(iid, "end", text=f" ({fmt_count(node.small_files_count)} archivos pequeños)",
+            rid = self.tree.insert(iid, "end", text=i18n.t("disk.small_files", n=fmt_count(node.small_files_count)),
                                    image=self.app.icons["group"],
                                    values=(fmt_size(node.small_files_size),
                                            text_bar(node.small_files_size, node.size),
                                            fmt_pct(node.small_files_size, node.size),
-                                           fmt_count(node.small_files_count), "", "Agrupados para ahorrar memoria"),
+                                           fmt_count(node.small_files_count), "", i18n.t("disk.small_files_hint")),
                                    tags=("muted", "bar"))
             self.items[rid] = ("rest", node)
 
@@ -302,12 +312,12 @@ class DiskView(View):
             name = os.path.basename(path)
             ext = os.path.splitext(name)[1].lower()
             rows.append({"name": name, "size": size, "mtime": mtime, "folder": os.path.dirname(path),
-                         "path": path, "type": scanner.EXT_HINTS.get(ext, ext.lstrip(".").upper() or "Archivo")})
+                         "path": path, "type": scanner.file_type_label(ext)})
         self.files_tbl.set_rows(rows)
 
     def _fill_types(self) -> None:
         total = sum(v[0] for v in self.result.by_extension.values()) or 1
-        rows = [{"ext": ext, "size": v[0], "count": v[1], "total": total, "desc": scanner.EXT_HINTS.get(ext, "")}
+        rows = [{"ext": ext, "size": v[0], "count": v[1], "total": total, "desc": scanner.ext_desc(ext)}
                 for ext, v in self.result.by_extension.items()]
         rows.sort(key=lambda r: r["size"], reverse=True)
         self.types_tbl.set_rows(rows[:400])
@@ -349,25 +359,26 @@ class DiskView(View):
             return
         sel = self._selected()
         if not sel:
-            self.sel_name.configure(text="Nada seleccionado")
+            self.sel_name.configure(text=i18n.t("common.nothing_selected"))
             self.sel_info.configure(text="")
             self._set_actions(False)
             return
         if len(sel) == 1:
             s = sel[0]
-            self.sel_name.configure(text=f"{os.path.basename(s['path'].rstrip(os.sep)) or s['path']}  ·  "
-                                         f"{fmt_size(s['size'])}")
+            name = os.path.basename(s['path'].rstrip(os.sep)) or s['path']
+            self.sel_name.configure(text=i18n.t("disk.sel_single", name=name, size=fmt_size(s['size'])))
             self.sel_info.configure(text=s["path"])
         else:
             total = sum(s["size"] for s in sel)
-            self.sel_name.configure(text=f"{len(sel)} elementos  ·  {fmt_size(total)}")
+            self.sel_name.configure(text=i18n.t("disk.sel_multi", n=len(sel), size=fmt_size(total)))
             self.sel_info.configure(text="")
         self._set_actions(True, single_dir=len(sel) == 1 and sel[0]["is_dir"])
 
     def _set_actions(self, on: bool, single_dir: bool = False) -> None:
+        enabled = on and not self._deleting
         for b in (self.btn_del, self.btn_rec, self.btn_open):
-            b.state(["!disabled"] if on else ["disabled"])
-        self.btn_scan_here.state(["!disabled"] if single_dir else ["disabled"])
+            b.state(["!disabled"] if enabled else ["disabled"])
+        self.btn_scan_here.state(["!disabled"] if (single_dir and not self._deleting) else ["disabled"])
 
     def _context_menu(self, e) -> None:
         tree = e.widget
@@ -390,7 +401,7 @@ class DiskView(View):
         if sel:
             self.clipboard_clear()
             self.clipboard_append("\n".join(s["path"] for s in sel))
-            self.status("Ruta copiada al portapapeles")
+            self.status(i18n.t("disk.path_copied"))
 
     def _scan_here(self) -> None:
         sel = self._selected()
@@ -400,54 +411,68 @@ class DiskView(View):
     def _check_blocked(self, sel: list[dict]) -> bool:
         _ok, blocked = fileops.validate([s["path"] for s in sel])
         if blocked:
-            dialogs.error(self, "Protegido", "Super Limpio no permite borrar esto:\n\n" +
-                          "\n".join(f"• {p}\n   {r}" for p, r in blocked[:10]))
+            dialogs.error(self, i18n.t("disk.blocked_title"),
+                          i18n.t("disk.blocked_body",
+                                 items="\n".join(f"• {p}\n   {r}" for p, r in blocked[:10])))
             return True
         return False
 
     def _recycle(self) -> None:
+        if self._deleting:
+            return
         sel = self._selected()
         if not sel or self._check_blocked(sel):
             return
         total = sum(s["size"] for s in sel)
         if not dialogs.confirm(
-                self, "Enviar a la Papelera",
-                f"Se moverán {len(sel)} elementos ({fmt_size(total)}) a la Papelera de reciclaje. "
-                "Podrás restaurarlos desde la Papelera mientras no la vacíes.\n"
-                "Si la unidad no tiene Papelera (p. ej. algunos discos externos), Windows te avisará antes.",
+                self, i18n.t("disk.recycle.title"),
+                i18n.t("disk.recycle.body", n=len(sel), size=fmt_size(total)),
                 dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]),
-                risk=Risk.MEDIO, ok_text="Enviar a la Papelera"):
+                risk=Risk.MEDIO, ok_text=i18n.t("common.recycle").rstrip("…")):
             return
         self._do_delete(sel, fileops.recycle)
 
     def _delete_perm(self) -> None:
+        if self._deleting:
+            return
         sel = self._selected()
         if not sel or self._check_blocked(sel):
             return
         total = sum(s["size"] for s in sel)
         if not dialogs.confirm(
-                self, "Eliminar definitivamente",
-                f"Se borrarán PARA SIEMPRE {len(sel)} elementos ({fmt_size(total)}), sin pasar por la Papelera. "
-                "No se podrán recuperar.",
+                self, i18n.t("disk.delete.title"),
+                i18n.t("disk.delete.body", n=len(sel), size=fmt_size(total)),
                 dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]),
-                risk=Risk.CRITICO, ok_text="Eliminar para siempre"):
+                risk=Risk.CRITICO, ok_text=i18n.t("disk.delete.ok")):
             return
         self._do_delete(sel, fileops.delete_permanently)
 
     def _do_delete(self, sel: list[dict], fn) -> None:
-        self.status("Eliminando…")
+        # Indicador de operación en curso: barra indeterminada + botones deshabilitados.
+        self._deleting = True
+        self._set_actions(False)
+        self.pbar.configure(mode="indeterminate")
+        self.pbar.start(12)
+        self.prog_lbl.configure(text=i18n.t("common.deleting"))
+        self.status(i18n.t("common.deleting"))
         self.app.bg.run(lambda: fn([s["path"] for s in sel]),
                         on_done=lambda r: self._after_delete(sel, r))
 
     def _after_delete(self, sel: list[dict], res: tuple[bool, str]) -> None:
         ok, msg = res
+        # Actualiza la pantalla cuanto antes para reflejar lo que ya no está.
+        self.pbar.stop()
+        self._deleting = False
         removed = [s for s in sel if not os.path.exists(s["path"])]
         for s in removed:
             self._remove_from_model(s)
         freed = sum(s["size"] for s in removed)
-        self.status(f"{msg} · {fmt_size(freed)} liberados ({len(removed)}/{len(sel)})")
+        self.prog_lbl.configure(text=i18n.t("disk.delete_status", msg=msg, size=fmt_size(freed),
+                                            removed=len(removed), total=len(sel)))
+        self.status(i18n.t("disk.delete_status", msg=msg, size=fmt_size(freed),
+                           removed=len(removed), total=len(sel)))
         if not ok:
-            dialogs.error(self, "Resultado", msg)
+            dialogs.error(self, i18n.t("common.result"), msg)
         self._on_select()
 
     def _remove_from_model(self, s: dict) -> None:

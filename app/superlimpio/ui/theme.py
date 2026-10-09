@@ -63,21 +63,25 @@ FALLBACK_GLYPHS = {
 
 
 class Fonts:
-    def __init__(self, root: tk.Misc):
+    def __init__(self, root: tk.Misc, zoom: float = 1.0):
         fams = set(tkfont.families(root))
         base = "Segoe UI" if "Segoe UI" in fams else "TkDefaultFont"
         semi = "Segoe UI Semibold" if "Segoe UI Semibold" in fams else base
         mono = "Cascadia Mono" if "Cascadia Mono" in fams else ("Consolas" if "Consolas" in fams else "TkFixedFont")
         self.icon_family = next((f for f in ("Segoe Fluent Icons", "Segoe MDL2 Assets") if f in fams), None)
-        self.base = (base, 10)
-        self.small = (base, 9)
-        self.bold = (semi, 10)
-        self.h1 = (semi, 17)
-        self.h2 = (semi, 12)
-        self.big = (semi, 22)
-        self.mono = (mono, 9)
-        self.brand = (semi, 14)
-        self.icon = (self.icon_family, 13) if self.icon_family else (base, 12)
+
+        def pt(size: int) -> int:
+            return max(7, round(size * zoom))
+
+        self.base = (base, pt(10))
+        self.small = (base, pt(9))
+        self.bold = (semi, pt(10))
+        self.h1 = (semi, pt(17))
+        self.h2 = (semi, pt(12))
+        self.big = (semi, pt(22))
+        self.mono = (mono, pt(9))
+        self.brand = (semi, pt(14))
+        self.icon = (self.icon_family, pt(13)) if self.icon_family else (base, pt(12))
 
     def glyph(self, name: str) -> str:
         return (GLYPHS if self.icon_family else FALLBACK_GLYPHS).get(name, "•")

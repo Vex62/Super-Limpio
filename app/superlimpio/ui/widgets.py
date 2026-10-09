@@ -10,6 +10,7 @@ import traceback
 from tkinter import ttk
 from typing import Any, Callable
 
+from .. import i18n
 from . import theme
 
 # Icono y logo generados por tools/crear_exe.py a partir de launcher/logo.png
@@ -105,7 +106,8 @@ def badge(master, text: str, fg: str, bg: str, font) -> tk.Label:
 
 def risk_badge(master, risk, font) -> tk.Label:
     fg, bg = theme.RISK_COLORS[risk]
-    return badge(master, f"Riesgo {risk.label.lower()}", fg, bg, font)
+    label = risk.label.lower() if i18n.current() == "es" else risk.label
+    return badge(master, i18n.t("risk.badge", label=label), fg, bg, font)
 
 
 class ScrollTree(ttk.Frame):

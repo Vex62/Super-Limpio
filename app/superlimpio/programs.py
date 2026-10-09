@@ -12,6 +12,7 @@ import os
 import re
 from dataclasses import dataclass
 
+from . import i18n
 from .util import IS_WINDOWS, expand
 
 if IS_WINDOWS:
@@ -27,19 +28,24 @@ class Program:
     version: str = ""
     estimated_size: int = 0        # bytes (dato declarado por el instalador)
     real_size: int | None = None   # bytes medidos en disco (bajo demanda)
-    install_date: str = ""         # dd/mm/aaaa
+    install_date: str = ""         # aaaa-mm-dd (ISO, ordenable en cualquier idioma)
     install_location: str = ""
     uninstall_string: str = ""
     quiet_uninstall_string: str = ""
     modify_path: str = ""
     msi_code: str = ""             # {GUID} si es Windows Installer
-    scope: str = ""                # "Equipo (64 bits)", "Equipo (32 bits)", "Usuario"
+    scope: str = ""                # token interno: "machine64", "machine32", "user"
     reg_key: str = ""
     display_icon: str = ""
 
     @property
     def best_size(self) -> int:
         return self.real_size if self.real_size is not None else self.estimated_size
+
+    @property
+    def scope_label(self) -> str:
+        return i18n.t({"machine64": "programs.scope.machine64", "machine32": "programs.scope.machine32",
+                       "user": "programs.scope.user"}.get(self.scope, self.scope))
 
     @property
     def location_guess(self) -> str:
@@ -74,7 +80,7 @@ def _fmt_install_date(raw) -> str:
     s = str(raw).strip()
     if re.fullmatch(r"\d{8}", s):
         try:
-            return _dt.datetime.strptime(s, "%Y%m%d").strftime("%d/%m/%Y")
+            return _dt.datetime.strptime(s, "%Y%m%d").strftime("%Y-%m-%d")
         except ValueError:
             return s
     return s
@@ -84,9 +90,9 @@ def list_installed() -> list[Program]:
     if not IS_WINDOWS:
         return []
     sources = [
-        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY, "Equipo (64 bits)", "HKLM"),
-        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY, "Equipo (32 bits)", "HKLM"),
-        (winreg.HKEY_CURRENT_USER, 0, "Usuario", "HKCU"),
+        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY, "machine64", "HKLM"),
+        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY, "machine32", "HKLM"),
+        (winreg.HKEY_CURRENT_USER, 0, "user", "HKCU"),
     ]
     seen: set[tuple[str, str]] = set()
     programs: list[Program] = []
@@ -181,10 +187,12 @@ class UninstallPlan:
     params: str
     display: str        # texto exacto que se mostrará al usuario
     warnings: list[str]
+    critical: bool = False   # True si el desinstalador usa un intérprete de comandos
 
 
 def build_uninstall_plan(p: Program) -> UninstallPlan:
     warnings: list[str] = []
+    critical = False
     if p.msi_code:
         # Windows Installer: /X = desinstalar (nunca /I, que reinstala/modifica)
         exe, params = "msiexec.exe", f"/x {p.msi_code}"
@@ -194,11 +202,11 @@ def build_uninstall_plan(p: Program) -> UninstallPlan:
             params = re.sub(r"(?i)/I(\s*\{)", r"/X\1", params)
     base = os.path.basename(exe).lower()
     if os.path.isabs(exe) and not os.path.exists(exe):
-        warnings.append("El desinstalador no existe en disco: el programa puede estar ya borrado "
-                        "a medias. Usa Configuración > Aplicaciones para limpiar la entrada.")
+        warnings.append(i18n.t("programs.warn.missing"))
     if base in ("cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "rundll32.exe"):
-        warnings.append(f"El desinstalador usa «{base}»; revisa los parámetros antes de continuar.")
-    if p.scope.startswith("Equipo"):
-        warnings.append("Instalado para todo el equipo: Windows pedirá permisos de administrador (UAC).")
+        warnings.append(i18n.t("programs.warn.interpreter", base=base))
+        critical = True
+    if p.scope.startswith("machine"):
+        warnings.append(i18n.t("programs.warn.machine"))
     display = f'"{exe}" {params}'.strip()
-    return UninstallPlan(exe, params, display, warnings)
+    return UninstallPlan(exe, params, display, warnings, critical)

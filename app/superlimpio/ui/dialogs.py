@@ -12,7 +12,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ..safety import CONFIRM_WORD, Risk
+from .. import i18n
+from ..safety import Risk, confirm_word
 from . import theme
 
 
@@ -37,7 +38,7 @@ class ConfirmDialog(tk.Toplevel):
         htxt = tk.Frame(head, bg=soft)
         htxt.pack(side="left", fill="x", expand=True, pady=int(12 * sf))
         tk.Label(htxt, text=title, font=fonts.h2, bg=soft, fg=theme.TEXT, anchor="w").pack(fill="x")
-        tk.Label(htxt, text=f"Nivel de riesgo: {risk.label}", font=fonts.small, bg=soft, fg=fg,
+        tk.Label(htxt, text=i18n.t("dialog.risk_level", label=risk.label), font=fonts.small, bg=soft, fg=fg,
                  anchor="w").pack(fill="x")
 
         body = tk.Frame(self, bg=theme.CARD)
@@ -46,7 +47,7 @@ class ConfirmDialog(tk.Toplevel):
                  anchor="w", wraplength=int(560 * sf)).pack(fill="x")
 
         if details:
-            tk.Label(body, text="Se va a ejecutar / afectar exactamente a:", font=fonts.small,
+            tk.Label(body, text=i18n.t("dialog.exact_target"), font=fonts.small,
                      bg=theme.CARD, fg=theme.MUTED, anchor="w").pack(fill="x", pady=(int(10 * sf), 2))
             frame = tk.Frame(body, bg=theme.BORDER)
             frame.pack(fill="both", expand=True)
@@ -64,13 +65,13 @@ class ConfirmDialog(tk.Toplevel):
         self.ack = tk.BooleanVar(value=False)
         self.word = tk.StringVar()
         if risk >= Risk.ALTO:
-            tk.Checkbutton(body, text="He revisado lo que se va a hacer y quiero continuar",
+            tk.Checkbutton(body, text=i18n.t("dialog.ack"),
                            variable=self.ack, bg=theme.CARD, activebackground=theme.CARD,
                            font=fonts.base, command=self._update, anchor="w").pack(fill="x", pady=(10, 0))
         if risk >= Risk.CRITICO:
             row = tk.Frame(body, bg=theme.CARD)
             row.pack(fill="x", pady=(8, 0))
-            tk.Label(row, text=f"Acción crítica. Escribe {CONFIRM_WORD} para habilitar el botón:",
+            tk.Label(row, text=i18n.t("dialog.critical_type", word=confirm_word()),
                      font=fonts.bold, bg=theme.CARD, fg=theme.DANGER).pack(side="left")
             ent = ttk.Entry(row, textvariable=self.word, width=14)
             ent.pack(side="left", padx=8)
@@ -78,12 +79,12 @@ class ConfirmDialog(tk.Toplevel):
 
         btns = tk.Frame(self, bg=theme.CARD)
         btns.pack(fill="x", padx=pad, pady=pad)
-        self.cancel_btn = ttk.Button(btns, text="Cancelar", command=self._cancel)
+        self.cancel_btn = ttk.Button(btns, text=i18n.t("common.cancel"), command=self._cancel)
         self.cancel_btn.pack(side="right")
         style = "Danger.TButton" if risk >= Risk.ALTO else "Accent.TButton"
         self.ok_btn = ttk.Button(btns, text=ok_text, style=style, command=self._ok)
         self.ok_btn.pack(side="right", padx=(0, 8))
-        tk.Label(btns, text="Nada se ejecuta sin tu permiso.", font=fonts.small, bg=theme.CARD,
+        tk.Label(btns, text=i18n.t("dialog.nothing_without_permission"), font=fonts.small, bg=theme.CARD,
                  fg=theme.MUTED).pack(side="left")
 
         self.bind("<Escape>", lambda e: self._cancel())
@@ -102,7 +103,7 @@ class ConfirmDialog(tk.Toplevel):
         ok = True
         if self.risk >= Risk.ALTO and not self.ack.get():
             ok = False
-        if self.risk >= Risk.CRITICO and self.word.get().strip().upper() != CONFIRM_WORD:
+        if self.risk >= Risk.CRITICO and self.word.get().strip().upper() != confirm_word().upper():
             ok = False
         self.ok_btn.state(["!disabled"] if ok else ["disabled"])
 
@@ -118,11 +119,11 @@ class ConfirmDialog(tk.Toplevel):
 
 
 def confirm(parent: tk.Misc, title: str, message: str, details: str = "", risk: Risk = Risk.MEDIO,
-            ok_text: str = "Continuar", fonts: theme.Fonts | None = None, sf: float = 1.0) -> bool:
+            ok_text: str | None = None, fonts: theme.Fonts | None = None, sf: float = 1.0) -> bool:
     app = getattr(parent.winfo_toplevel(), "_superlimpio_app", None)
     if fonts is None and app is not None:
         fonts, sf = app.fonts, app.sf
-    dlg = ConfirmDialog(parent, title, message, details, risk, ok_text, fonts, sf)
+    dlg = ConfirmDialog(parent, title, message, details, risk, ok_text or i18n.t("common.continue"), fonts, sf)
     parent.wait_window(dlg)
     return dlg.result
 
@@ -146,5 +147,5 @@ def summarize_paths(paths: list[str], sizes: list[int] | None = None, limit: int
         else:
             lines.append(p)
     if len(paths) > limit:
-        lines.append(f"... y {len(paths) - limit} elementos más")
+        lines.append(i18n.t("dialog.more_items", n=len(paths) - limit))
     return "\n".join(lines)

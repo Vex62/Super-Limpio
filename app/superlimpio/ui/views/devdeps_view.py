@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from ... import devdeps, fileops, winapi
+from ... import devdeps, fileops, i18n, winapi
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_size
 from .. import dialogs, theme
@@ -18,29 +18,31 @@ ON, OFF = "☑", "☐"
 
 
 class DevDepsView(View):
-    title = "Librerías de desarrollo"
-    subtitle = "Dependencias y compilaciones que se pueden regenerar: node_modules, entornos virtuales, target…"
     icon = "code"
+    view_key = "devdeps"
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        self.title = i18n.t("devdeps.title")
+        self.subtitle = i18n.t("devdeps.subtitle")
         self.cancel_ev: threading.Event | None = None
         self.checked: set[str] = set()
+        self._deleting = False
 
         bar = self.toolbar()
-        ttk.Label(bar, text="Buscar en").pack(side="left", padx=(0, self.px(6)))
+        ttk.Label(bar, text=i18n.t("devdeps.search_in")).pack(side="left", padx=(0, self.px(6)))
         self.path = tk.StringVar(value=os.path.expanduser("~"))
         ttk.Entry(bar, textvariable=self.path).pack(side="left", fill="x", expand=True)
-        ttk.Button(bar, text="Examinar…", command=self._browse).pack(side="left", padx=self.px(6))
-        self.go = ttk.Button(bar, text="Buscar", style="Accent.TButton", command=self.search)
+        ttk.Button(bar, text=i18n.t("common.browse"), command=self._browse).pack(side="left", padx=self.px(6))
+        self.go = ttk.Button(bar, text=i18n.t("common.search"), style="Accent.TButton", command=self.search)
         self.go.pack(side="left")
 
-        self.info = ttk.Label(self, text="Busca carpetas de dependencias en tus proyectos. "
-                                         "Marca las de proyectos que ya no uses.", style="Muted.TLabel")
+        self.info = ttk.Label(self, text=i18n.t("devdeps.intro"), style="Muted.TLabel")
         self.info.pack(anchor="w", pady=(0, self.px(6)))
 
-        cols = [("sel", "", 34, "center"), ("size", "Tamaño", 95, "e"), ("kind", "Tipo", 210, "w"),
-                ("mtime", "Modificado", 125, "w"), ("files", "Archivos", 85, "e"), ("project", "Proyecto", 420, "w")]
+        cols = [("sel", "", 34, "center"), ("size", i18n.t("devdeps.col.size"), 95, "e"),
+                ("kind", i18n.t("devdeps.col.kind"), 210, "w"), ("mtime", i18n.t("devdeps.col.modified"), 125, "w"),
+                ("files", i18n.t("devdeps.col.files"), 85, "e"), ("project", i18n.t("devdeps.col.path"), 420, "w")]
         box = ScrollTree(self, cols, sf=self.sf)
         box.pack(fill="both", expand=True)
         self.tree = box.tree
@@ -51,29 +53,29 @@ class DevDepsView(View):
             sort_keys={"size": lambda a: a.size, "kind": lambda a: a.kind, "mtime": lambda a: a.mtime,
                        "project": lambda a: a.path.lower()},
             default_sort="size", tag_fn=lambda a: (theme.size_tag(a.size),), key_fn=lambda a: a.path)
-        self.tree.heading("project", text="Ruta")
         self.tree.bind("<Button-1>", self._click)
         self.tree.bind("<space>", lambda e: self._toggle(self.tree.selection()))
 
+        self.pbar = ttk.Progressbar(self, mode="indeterminate")
+        self.pbar.pack(fill="x", pady=(self.px(6), 0))
+
         btns = ttk.Frame(self)
         btns.pack(fill="x", pady=(self.px(10), 0))
-        ttk.Button(btns, text="Marcar todo", command=lambda: self._mark(True)).pack(side="left")
-        ttk.Button(btns, text="Desmarcar", command=lambda: self._mark(False)).pack(side="left", padx=self.px(6))
-        ttk.Button(btns, text="Marcar > 6 meses sin tocar", command=self._mark_old).pack(side="left")
-        ttk.Button(btns, text="Abrir ubicación", command=self._open).pack(side="left", padx=self.px(6))
-        self.del_btn = ttk.Button(btns, text="Eliminar definitivamente…", style="Danger.TButton",
+        ttk.Button(btns, text=i18n.t("devdeps.mark_all"), command=lambda: self._mark(True)).pack(side="left")
+        ttk.Button(btns, text=i18n.t("devdeps.unmark"), command=lambda: self._mark(False)).pack(
+            side="left", padx=self.px(6))
+        ttk.Button(btns, text=i18n.t("devdeps.mark_old"), command=self._mark_old).pack(side="left")
+        ttk.Button(btns, text=i18n.t("common.open_location"), command=self._open).pack(side="left", padx=self.px(6))
+        self.del_btn = ttk.Button(btns, text=i18n.t("common.delete_perm"), style="Danger.TButton",
                                   command=lambda: self._delete(True))
         self.del_btn.pack(side="right")
-        self.rec_btn = ttk.Button(btns, text="Enviar marcadas a la Papelera…", style="Accent.TButton",
+        self.rec_btn = ttk.Button(btns, text=i18n.t("devdeps.recycle_marked"), style="Accent.TButton",
                                   command=lambda: self._delete(False))
         self.rec_btn.pack(side="right", padx=self.px(6))
-        self.note(self, "Consejo: node_modules suele tener decenas de miles de archivos pequeños; borrarlo "
-                        "definitivamente es mucho más rápido que enviarlo a la Papelera. Se regenera con "
-                        "«npm install» / «pip install -r requirements.txt» / «cargo build».") \
-            .pack(fill="x", pady=(self.px(6), 0))
+        self.note(self, i18n.t("devdeps.note")).pack(fill="x", pady=(self.px(6), 0))
 
     def _browse(self) -> None:
-        d = filedialog.askdirectory(parent=self, initialdir=self.path.get(), title="Carpeta de proyectos")
+        d = filedialog.askdirectory(parent=self, initialdir=self.path.get(), title=i18n.t("devdeps.browse_title"))
         if d:
             self.path.set(os.path.normpath(d))
 
@@ -83,25 +85,26 @@ class DevDepsView(View):
             return
         root = self.path.get().strip().strip('"')
         if not os.path.isdir(root):
-            dialogs.error(self, "Ruta no válida", root)
+            dialogs.error(self, i18n.t("disk.invalid_path"), root)
             return
         self.cancel_ev = ev = threading.Event()
-        self.go.configure(text="Detener")
+        self.go.configure(text=i18n.t("common.stop"))
         self.checked.clear()
         self.table.set_rows([])
 
         def progress(cur, n):
-            self.app.bg.call_in_ui(self.info.configure, {"text": f"Buscando… {n} encontradas · {cur[-100:]}"})
+            self.app.bg.call_in_ui(self.info.configure,
+                                   {"text": i18n.t("devdeps.searching", n=n, cur=cur[-100:])})
 
         self.app.bg.run(lambda: devdeps.find_artifacts(root, progress, ev), on_done=self._done)
 
     def _done(self, arts) -> None:
         self.cancel_ev = None
-        self.go.configure(text="Buscar")
+        self.go.configure(text=i18n.t("common.search"))
         self.table.set_rows(arts)
         total = sum(a.size for a in arts)
-        self.info.configure(text=f"{len(arts)} carpetas regenerables · {fmt_size(total)} en total")
-        self.status(f"Librerías de desarrollo: {fmt_size(total)}")
+        self.info.configure(text=i18n.t("devdeps.done", n=len(arts), total=fmt_size(total)))
+        self.status(i18n.t("devdeps.status", total=fmt_size(total)))
 
     # ----------------------------------------------------------- marcas
     def _click(self, e):
@@ -138,7 +141,7 @@ class DevDepsView(View):
 
     def _update_info(self) -> None:
         sel = [a for a in self.table.rows if a.path in self.checked]
-        self.info.configure(text=f"{len(sel)} marcadas · {fmt_size(sum(a.size for a in sel))} a liberar")
+        self.info.configure(text=i18n.t("devdeps.marked", n=len(sel), size=fmt_size(sum(a.size for a in sel))))
 
     def _open(self) -> None:
         s = self.table.selected()
@@ -146,39 +149,48 @@ class DevDepsView(View):
             winapi.open_in_explorer(s[0].path)
 
     def _delete(self, permanent: bool) -> None:
+        if self._deleting:
+            return
         sel = [a for a in self.table.rows if a.path in self.checked]
         if not sel:
-            dialogs.info(self, "Nada marcado", "Marca las carpetas pulsando en la casilla ☐ de cada fila.")
+            dialogs.info(self, i18n.t("devdeps.nothing_title"), i18n.t("devdeps.nothing_body"))
             return
         _ok, blocked = fileops.validate([a.path for a in sel])
         if blocked:
-            dialogs.error(self, "Protegido", "\n".join(f"{p}: {r}" for p, r in blocked[:10]))
+            dialogs.error(self, i18n.t("common.protected"), "\n".join(f"{p}: {r}" for p, r in blocked[:10]))
             return
         total = sum(a.size for a in sel)
         details = dialogs.summarize_paths([a.path for a in sel], [a.size for a in sel])
         if permanent:
-            ok = dialogs.confirm(self, "Eliminar definitivamente",
-                                 f"Se borrarán para siempre {len(sel)} carpetas ({fmt_size(total)}). "
-                                 "Son regenerables, pero no se podrán recuperar de la Papelera.",
-                                 details, risk=Risk.CRITICO, ok_text="Eliminar para siempre")
+            ok = dialogs.confirm(self, i18n.t("disk.delete.title"),
+                                 i18n.t("devdeps.delete.body", n=len(sel), size=fmt_size(total)),
+                                 details, risk=Risk.CRITICO, ok_text=i18n.t("devdeps.delete.ok"))
         else:
-            ok = dialogs.confirm(self, "Enviar a la Papelera",
-                                 f"Se moverán {len(sel)} carpetas ({fmt_size(total)}) a la Papelera.",
-                                 details, risk=Risk.MEDIO, ok_text="Enviar a la Papelera")
+            ok = dialogs.confirm(self, i18n.t("disk.recycle.title"),
+                                 i18n.t("devdeps.recycle.body", n=len(sel), size=fmt_size(total)),
+                                 details, risk=Risk.MEDIO, ok_text=i18n.t("common.recycle").rstrip("…"))
         if not ok:
             return
         fn = fileops.delete_permanently if permanent else fileops.recycle
-        self.status("Eliminando…")
+        self._deleting = True
+        self.del_btn.state(["disabled"])
+        self.rec_btn.state(["disabled"])
+        self.pbar.start(12)
+        self.status(i18n.t("common.deleting"))
         self.app.bg.run(lambda: fn([a.path for a in sel]), on_done=lambda r: self._deleted(sel, r))
 
     def _deleted(self, sel, res) -> None:
         ok, msg = res
+        self.pbar.stop()
+        self._deleting = False
+        self.del_btn.state(["!disabled"])
+        self.rec_btn.state(["!disabled"])
         gone = {a.path for a in sel if not os.path.exists(a.path)}
         self.table.rows = [a for a in self.table.rows if a.path not in gone]
         self.checked -= gone
         self.table.refresh()
         freed = sum(a.size for a in sel if a.path in gone)
-        self.status(f"{msg} · {fmt_size(freed)} liberados")
+        self.status(i18n.t("devdeps.deleted_status", msg=msg, size=fmt_size(freed)))
         self._update_info()
         if not ok:
-            dialogs.error(self, "Resultado", msg)
+            dialogs.error(self, i18n.t("common.result"), msg)

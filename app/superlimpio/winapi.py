@@ -13,6 +13,7 @@ import string
 import sys
 from dataclasses import dataclass
 
+from . import i18n
 from .util import IS_WINDOWS
 
 if IS_WINDOWS:
@@ -275,14 +276,14 @@ def _list_processes_posix() -> list[RawProcess]:
 
 def terminate_process(pid: int) -> tuple[bool, str]:
     if not IS_WINDOWS:
-        return False, "Solo disponible en Windows"
+        return False, i18n.t("common.windows_only")
     h = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
     if not h:
-        return False, f"Acceso denegado (error {ctypes.get_last_error()}). Prueba como administrador."
+        return False, i18n.t("winapi.proc_access_denied", err=ctypes.get_last_error())
     try:
         if kernel32.TerminateProcess(h, 1):
-            return True, "Proceso finalizado"
-        return False, f"No se pudo finalizar (error {ctypes.get_last_error()})"
+            return True, i18n.t("winapi.proc_ended")
+        return False, i18n.t("winapi.proc_fail", err=ctypes.get_last_error())
     finally:
         kernel32.CloseHandle(h)
 
@@ -297,22 +298,22 @@ def shell_execute(file: str, params: str | None = None, verb: str = "open",
     si el ejecutable la requiere). Nunca se usa un intérprete de comandos intermedio
     salvo que el llamante lo indique explícitamente."""
     if not IS_WINDOWS:
-        return False, "Solo disponible en Windows"
+        return False, i18n.t("common.windows_only")
     rc = shell32.ShellExecuteW(None, verb, file, params, cwd, show)
     rc = rc or 0
     if rc > 32:
-        return True, "Lanzado"
+        return True, i18n.t("winapi.launched")
     if rc == 5:
-        return False, "Acceso denegado o elevación cancelada por el usuario"
+        return False, i18n.t("winapi.access_denied")
     if rc in (2, 3):
-        return False, "No se encontró el archivo o la ruta"
-    return False, f"ShellExecute devolvió el código {rc}"
+        return False, i18n.t("winapi.not_found")
+    return False, i18n.t("winapi.shellexec_code", rc=rc)
 
 
 def open_in_explorer(path: str) -> tuple[bool, str]:
     """Abre el Explorador seleccionando el elemento."""
     if not IS_WINDOWS:
-        return False, "Solo disponible en Windows"
+        return False, i18n.t("common.windows_only")
     path = os.path.normpath(path)
     if os.path.isdir(path):
         return shell_execute("explorer.exe", f'"{path}"')
@@ -332,22 +333,22 @@ def recycle_bin_info(drive: str | None = None) -> tuple[int, int]:
 
 def empty_recycle_bin() -> tuple[bool, str]:
     if not IS_WINDOWS:
-        return False, "Solo disponible en Windows"
+        return False, i18n.t("common.windows_only")
     SHERB_NOCONFIRMATION, SHERB_NOPROGRESSUI, SHERB_NOSOUND = 0x1, 0x2, 0x4
     # La confirmación la ha dado ya el usuario en nuestra ventana.
     hr = shell32.SHEmptyRecycleBinW(None, None, SHERB_NOCONFIRMATION | SHERB_NOPROGRESSUI | SHERB_NOSOUND)
     if hr in (0, -2147418113):  # S_OK o E_UNEXPECTED (papelera ya vacía)
-        return True, "Papelera vaciada"
-    return False, f"No se pudo vaciar la papelera (HRESULT {hr & 0xFFFFFFFF:#x})"
+        return True, i18n.t("winapi.bin_emptied")
+    return False, i18n.t("winapi.bin_fail", hr=f"{hr & 0xFFFFFFFF:#x}")
 
 
 def send_to_recycle_bin(paths: list[str]) -> tuple[bool, str]:
     """Mueve archivos/carpetas a la Papelera (recuperable). Si la unidad no tiene
     papelera, Windows mostrará su propio aviso antes de borrar definitivamente."""
     if not IS_WINDOWS:
-        return False, "Solo disponible en Windows"
+        return False, i18n.t("common.windows_only")
     if not paths:
-        return True, "Nada que mover"
+        return True, i18n.t("winapi.recycle_nothing")
     FO_DELETE = 3
     FOF_SILENT, FOF_NOCONFIRMATION, FOF_ALLOWUNDO = 0x4, 0x10, 0x40
     FOF_NOERRORUI, FOF_WANTNUKEWARNING = 0x400, 0x4000
@@ -360,10 +361,10 @@ def send_to_recycle_bin(paths: list[str]) -> tuple[bool, str]:
     op.fFlags = FOF_ALLOWUNDO | FOF_NOCONFIRMATION | FOF_WANTNUKEWARNING | FOF_SILENT | FOF_NOERRORUI
     rc = shell32.SHFileOperationW(ctypes.byref(op))
     if rc == 0 and not op.fAnyOperationsAborted:
-        return True, "Enviado a la Papelera"
+        return True, i18n.t("winapi.recycle_done")
     if op.fAnyOperationsAborted:
-        return False, "Operación cancelada"
-    return False, f"No se pudo enviar a la Papelera (código {rc:#x}). ¿Archivo en uso o sin permisos?"
+        return False, i18n.t("winapi.recycle_cancelled")
+    return False, i18n.t("winapi.recycle_fail", rc=f"{rc:#x}")
 
 
 def admin_command(script: str) -> tuple[str, str]:

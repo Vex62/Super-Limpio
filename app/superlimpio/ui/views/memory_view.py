@@ -5,7 +5,7 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ... import winapi
+from ... import i18n, winapi
 from ...processes import ProcessMonitor, group_by_program
 from ...safety import Risk, check_process_kill, log_action
 from ...util import fmt_count, fmt_size
@@ -15,12 +15,13 @@ from .base import View
 
 
 class MemoryView(View):
-    title = "Memoria y procesos"
-    subtitle = "Programas en ejecución ordenados por la memoria que reservan."
     icon = "memory"
+    view_key = "memory"
 
     def __init__(self, master, app):
         super().__init__(master, app)
+        self.title = i18n.t("memory.title")
+        self.subtitle = i18n.t("memory.subtitle")
         self.monitor = ProcessMonitor()
         self.busy = False
         self._after = None
@@ -29,7 +30,8 @@ class MemoryView(View):
         top.pack(fill="x", pady=(0, self.px(10)))
         inner = tk.Frame(top, bg=theme.CARD)
         inner.pack(fill="x", padx=self.px(14), pady=self.px(10))
-        self.ram_lbl = tk.Label(inner, text="RAM", font=self.fonts.h2, bg=theme.CARD, fg=theme.TEXT)
+        self.ram_lbl = tk.Label(inner, text=i18n.t("memory.ram"), font=self.fonts.h2, bg=theme.CARD,
+                                fg=theme.TEXT)
         self.ram_lbl.pack(anchor="w")
         self.ram_bar = UsageBar(inner, self.sf, height=12)
         self.ram_bar.pack(fill="x", pady=self.px(6))
@@ -37,32 +39,35 @@ class MemoryView(View):
         self.ram_txt.pack(fill="x")
 
         bar = self.toolbar()
-        ttk.Button(bar, text="Actualizar", command=self.refresh).pack(side="left")
+        ttk.Button(bar, text=i18n.t("common.refresh"), command=self.refresh).pack(side="left")
         self.auto = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bar, text="Actualizar cada 3 s", variable=self.auto, style="Bg.TCheckbutton",
+        ttk.Checkbutton(bar, text=i18n.t("memory.auto"), variable=self.auto, style="Bg.TCheckbutton",
                         command=self._schedule).pack(side="left", padx=self.px(10))
         self.grouped = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bar, text="Agrupar por programa", variable=self.grouped, style="Bg.TCheckbutton",
+        ttk.Checkbutton(bar, text=i18n.t("memory.group"), variable=self.grouped, style="Bg.TCheckbutton",
                         command=self.refresh).pack(side="left")
-        ttk.Label(bar, text="Buscar").pack(side="left", padx=(self.px(14), self.px(6)))
+        ttk.Label(bar, text=i18n.t("common.search")).pack(side="left", padx=(self.px(14), self.px(6)))
         self.q = tk.StringVar()
         self.q.trace_add("write", lambda *_: self.table.refresh())
         ttk.Entry(bar, textvariable=self.q, width=22).pack(side="left")
-        ttk.Button(bar, text="Finalizar…", style="Danger.TButton", command=self.kill).pack(side="right")
-        ttk.Button(bar, text="Abrir ubicación", command=self.open_location).pack(side="right", padx=self.px(6))
+        ttk.Button(bar, text=i18n.t("memory.kill"), style="Danger.TButton", command=self.kill).pack(side="right")
+        ttk.Button(bar, text=i18n.t("common.open_location"), command=self.open_location).pack(
+            side="right", padx=self.px(6))
 
-        cols = [("name", "Programa", 240, "w"), ("count", "Procesos", 75, "e"),
-                ("private", "Memoria privada", 120, "e"), ("ws", "En RAM ahora", 110, "e"),
-                ("cpu", "CPU", 70, "e"), ("threads", "Hilos", 70, "e"), ("path", "Ruta", 380, "w")]
+        cols = [("name", i18n.t("memory.col.program"), 240, "w"), ("count", i18n.t("memory.col.processes"), 75, "e"),
+                ("private", i18n.t("memory.col.private"), 120, "e"), ("ws", i18n.t("memory.col.ws"), 110, "e"),
+                ("cpu", i18n.t("memory.col.cpu"), 70, "e"), ("threads", i18n.t("memory.col.threads"), 70, "e"),
+                ("path", i18n.t("memory.col.path"), 380, "w")]
         box = ScrollTree(self, cols, sf=self.sf)
         box.pack(fill="both", expand=True)
         self.tree = box.tree
         self.table = SortableTable(
             self.tree,
             render=lambda r: (r.name, fmt_count(r.count) if self.grouped.get() else str(r.pid),
-                              fmt_size(r.private) if r.accessible else "sin acceso",
+                              fmt_size(r.private) if r.accessible else i18n.t("memory.no_access"),
                               fmt_size(r.working_set) if r.accessible else "",
-                              f"{r.cpu_pct:.1f} %".replace(".", ","), fmt_count(r.threads), r.path),
+                              i18n.percent(f"{r.cpu_pct:.1f}".replace(".", i18n.decimal_sep())),
+                              fmt_count(r.threads), r.path),
             sort_keys={"name": lambda r: r.name.lower(), "private": lambda r: r.private,
                        "ws": lambda r: r.working_set, "cpu": lambda r: r.cpu_pct, "count": lambda r: r.count},
             default_sort="private",
@@ -73,10 +78,7 @@ class MemoryView(View):
         self.tree.tag_configure("m_big", background=theme.ROW_BIG)
         self.tree.tag_configure("m_mid", background=theme.ROW_MID)
 
-        self.note(self, "«Memoria privada» es la memoria que el programa ha reservado solo para él (la cifra "
-                        "que mejor indica su consumo). «En RAM ahora» es la parte que ocupa físicamente en este "
-                        "momento. Los procesos del sistema sin acceso necesitan ejecutar como administrador.") \
-            .pack(fill="x", pady=(self.px(6), 0))
+        self.note(self, i18n.t("memory.note")).pack(fill="x", pady=(self.px(6), 0))
 
     def _match(self, r) -> bool:
         q = self.q.get().strip().lower()
@@ -117,14 +119,15 @@ class MemoryView(View):
         self.table.set_rows(rows)
         if mem:
             self.ram_bar.set(mem.used / mem.total if mem.total else 0)
-            self.ram_lbl.configure(text=f"Memoria RAM · {mem.load_pct} % en uso")
+            self.ram_lbl.configure(text=i18n.t("memory.ram_header", pct=mem.load_pct))
             commit = ""
             if mem.commit_total:
-                commit = (f" · Memoria comprometida (RAM + archivo de paginación): "
-                          f"{fmt_size(mem.commit_total - mem.commit_available)} de {fmt_size(mem.commit_total)}")
-            self.ram_txt.configure(text=f"{fmt_size(mem.used)} usados de {fmt_size(mem.total)} · "
-                                        f"{fmt_size(mem.available)} disponibles{commit}")
-        self.status(f"{len(procs)} procesos")
+                commit = i18n.t("memory.commit", used=fmt_size(mem.commit_total - mem.commit_available),
+                                total=fmt_size(mem.commit_total))
+            self.ram_txt.configure(text=i18n.t("memory.ram_detail", used=fmt_size(mem.used),
+                                               total=fmt_size(mem.total), avail=fmt_size(mem.available),
+                                               commit=commit))
+        self.status(i18n.t("memory.processes", n=len(procs)))
         self._schedule()
 
     def open_location(self) -> None:
@@ -150,16 +153,17 @@ class MemoryView(View):
                 risk = max(risk, rk)
                 reasons.add(why)
         if blocked and not targets:
-            dialogs.error(self, "Protegido", "Super Limpio no finaliza procesos esenciales:\n\n" + "\n".join(blocked[:10]))
+            dialogs.error(self, i18n.t("memory.kill.protected_title"),
+                          i18n.t("memory.kill.protected_body", items="\n".join(blocked[:10])))
             return
         details = "\n".join(f"PID {pid:>6}  {name}" for pid, name in targets[:60])
         if len(targets) > 60:
-            details += f"\n... y {len(targets) - 60} más"
+            details += i18n.t("memory.kill.more", n=len(targets) - 60)
         if blocked:
-            details += "\n\nSe omitirán (protegidos):\n" + "\n".join(blocked[:10])
-        msg = ("Se forzará el cierre de los procesos indicados (equivale a «Finalizar tarea»). "
-               + " ".join(sorted(reasons)))
-        if not dialogs.confirm(self, "Finalizar procesos", msg, details, risk=risk, ok_text="Finalizar"):
+            details += i18n.t("memory.kill.skipped", items="\n".join(blocked[:10]))
+        msg = i18n.t("memory.kill.body", reasons=" ".join(sorted(reasons)))
+        if not dialogs.confirm(self, i18n.t("memory.kill.title"), msg, details, risk=risk,
+                               ok_text=i18n.t("memory.kill.ok")):
             return
         fails = []
         for pid, name in targets:
@@ -168,8 +172,8 @@ class MemoryView(View):
             if not ok:
                 fails.append(f"{name} ({pid}): {m}")
         if fails:
-            dialogs.error(self, "Algunos procesos no se cerraron", "\n".join(fails[:15]))
-        self.status(f"{len(targets) - len(fails)} procesos finalizados")
+            dialogs.error(self, i18n.t("memory.kill.fail_title"), "\n".join(fails[:15]))
+        self.status(i18n.t("memory.kill.done", n=len(targets) - len(fails)))
         self.after(500, self.refresh)
 
 
