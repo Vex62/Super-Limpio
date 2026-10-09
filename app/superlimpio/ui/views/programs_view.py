@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from ... import i18n, programs, winapi
+from ... import i18n, programs, plat
 from ...safety import Risk, log_action
 from ...scanner import quick_folder_size
 from ...util import fmt_size
@@ -40,8 +40,9 @@ class ProgramsView(View):
         self.uninstall_btn.pack(side="right")
         ttk.Button(bar, text=i18n.t("common.open_location"), command=self.open_location).pack(
             side="right", padx=self.px(6))
-        ttk.Button(bar, text=i18n.t("programs.store_apps"),
-                   command=lambda: winapi.shell_execute("ms-settings:appsfeatures")).pack(side="right")
+        if plat.capabilities()["apps_settings"]:
+            ttk.Button(bar, text=i18n.t("programs.store_apps"),
+                       command=plat.open_apps_settings).pack(side="right")
 
         self.summary = ttk.Label(self, text="", style="Muted.TLabel")
         self.summary.pack(anchor="w", pady=(0, self.px(6)))
@@ -174,7 +175,7 @@ class ProgramsView(View):
     def open_location(self) -> None:
         sel = self.table.selected()
         if sel and sel[0]["loc"]:
-            winapi.open_in_explorer(sel[0]["loc"])
+            plat.open_in_explorer(sel[0]["loc"])
         elif sel:
             self.status(i18n.t("programs.no_location"))
 
@@ -198,7 +199,7 @@ class ProgramsView(View):
                 i18n.t("programs.uninstall_dialog.body"),
                 details, risk=risk, ok_text=i18n.t("programs.uninstall_dialog.ok")):
             return
-        ok, msg = winapi.shell_execute(plan.exe, plan.params or None, verb="open")
+        ok, msg = plat.shell_execute(plan.exe, plan.params or None, verb="open")
         log_action("desinstalar", p.name, f"{plan.display} -> {msg}", ok=ok)
         if ok:
             self.status(i18n.t("programs.uninstall.opened", name=p.name))

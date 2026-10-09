@@ -4,7 +4,7 @@ import shutil
 import tkinter as tk
 from tkinter import ttk
 
-from ... import i18n, winapi
+from ... import i18n, plat
 from ...processes import ProcessMonitor, group_by_program
 from ...util import fmt_size
 from .. import theme
@@ -93,16 +93,16 @@ class SummaryView(View):
 
     def _collect(self):
         drives = []
-        for d in winapi.list_drives():
+        for d in plat.list_drives():
             try:
                 u = shutil.disk_usage(d)
                 drives.append((d, u.total, u.used, u.free))
             except OSError:
                 continue
-        mem = winapi.memory_status()
+        mem = plat.memory_status()
         procs = group_by_program(self.monitor.sample())
         procs.sort(key=lambda p: p.private, reverse=True)
-        rb = winapi.recycle_bin_info()
+        rb = plat.recycle_bin_info()
         return drives, mem, procs[:5], rb
 
     def _render(self, data) -> None:

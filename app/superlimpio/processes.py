@@ -6,7 +6,8 @@ import os
 import time
 from dataclasses import dataclass, field
 
-from . import winapi
+from . import plat
+from .plat import know
 
 
 @dataclass
@@ -34,11 +35,11 @@ class ProcessMonitor:
 
     def sample(self) -> list[ProcInfo]:
         now = time.monotonic()
-        raw = winapi.list_processes()
+        raw = plat.list_processes()
         dt = now - self._prev_t if self._prev_t else 0.0
         out = []
         new_prev = {}
-        names = {r.pid: r.name.lower() for r in raw}
+        by_pid = {r.pid: r for r in raw}
         for r in raw:
             new_prev[r.pid] = r.cpu_time
             cpu = 0.0
@@ -46,7 +47,7 @@ class ProcessMonitor:
                 cpu = max(0.0, (r.cpu_time - self._prev[r.pid]) / (dt * self._ncpu) * 100)
             out.append(ProcInfo(r.pid, r.name, r.path, r.private, r.working_set,
                                 min(cpu, 100.0), r.threads, r.accessible, 1, [r.pid],
-                                service=r.ppid != r.pid and names.get(r.ppid) == "services.exe"))
+                                service=r.ppid != r.pid and know.is_service(r, by_pid.get(r.ppid))))
         self._prev = new_prev
         self._prev_t = now
         return out

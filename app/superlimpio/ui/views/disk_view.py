@@ -12,7 +12,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from ... import criticality, fileops, i18n, scanner, winapi
+from ... import criticality, fileops, i18n, scanner, plat
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_pct, fmt_size, text_bar
 from .. import compress_dialog, dialogs, theme
@@ -40,7 +40,7 @@ class DiskView(View):
 
         # ---- barra de direcciones (estilo Explorador)
         bar = self.toolbar()
-        drives = winapi.list_drives()
+        drives = plat.list_drives()
         self.path_var = tk.StringVar(value=drives[0] if drives else os.path.expanduser("~"))
         ttk.Label(bar, text=i18n.t("disk.location")).pack(side="left", padx=(0, self.px(6)))
         self.drive_cb = ttk.Combobox(bar, values=drives, width=6, state="readonly")
@@ -476,7 +476,7 @@ class DiskView(View):
     def _open(self) -> None:
         sel = self._selected()
         if sel:
-            ok, msg = winapi.open_in_explorer(sel[0]["path"])
+            ok, msg = plat.open_in_explorer(sel[0]["path"])
             if not ok:
                 self.status(msg)
 

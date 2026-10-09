@@ -13,7 +13,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 
-from ... import i18n, optimizer, startup, winapi
+from ... import i18n, optimizer, startup, plat
 from ...optimizer import Action
 from ...safety import Risk
 from ...util import fmt_count, fmt_size
@@ -160,13 +160,13 @@ class OptimizerView(View):
                 progress=lambda i, n: self.app.bg.call_in_ui(self._an_progress, i))
             if stop.is_set() or len(samples) < 2:
                 return None
-            windows = winapi.list_windows()
+            windows = plat.list_windows()
             try:
                 enabled = sum(1 for i in startup.list_startup() if i.enabled is not False)
             except OSError:
                 enabled = None
             plan = optimizer.build_plan(samples[-1][1], windows)
-            return optimizer.analyze(samples, winapi.memory_status(), winapi.performance_info(),
+            return optimizer.analyze(samples, plat.memory_status(), plat.performance_info(),
                                      {w.pid for w in windows}, startup_enabled=enabled,
                                      reclaim=optimizer.reclaimable(plan), is_admin=is_admin)
 
@@ -239,7 +239,7 @@ class OptimizerView(View):
         if not rows:
             self.app.request_close(self)
             return
-        plan, blocked = optimizer.selection_plan(rows, self._report.procs, winapi.list_windows())
+        plan, blocked = optimizer.selection_plan(rows, self._report.procs, plat.list_windows())
         if not plan.candidates:
             dialogs.error(self, i18n.t("common.protected"),
                           i18n.t("opt.an.close.blocked_body", items="\n".join(blocked[:12])))
@@ -270,7 +270,7 @@ class OptimizerView(View):
         if res is None:
             return
         gone = {c.key for c in plan.candidates
-                if not any(winapi.process_alive(m.pid, m.create_time) for m in c.members)}
+                if not any(plat.process_alive(m.pid, m.create_time) for m in c.members)}
         self.prog_tbl.set_rows([u for u in self.prog_tbl.rows if u.key not in gone])
         lines = [i18n.t("opt.an.close.done", n=res.closed)]
         freed = res.available_after - res.available_before
@@ -422,12 +422,12 @@ class OptimizerView(View):
         self._eff_busy = True
 
         def work():
-            before = winapi.list_processes()
+            before = plat.list_processes()
             t0 = time.monotonic()
             time.sleep(0.5)
-            procs = winapi.list_processes()
+            procs = plat.list_processes()
             cpu = optimizer.cpu_percent(before, procs, time.monotonic() - t0, os.cpu_count() or 1)
-            return procs, winapi.list_windows(), cpu
+            return procs, plat.list_windows(), cpu
 
         self.app.bg.run(work, on_done=self._loaded, on_error=lambda e: setattr(self, "_eff_busy", False))
 

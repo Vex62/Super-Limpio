@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tkinter import ttk
 
-from ... import i18n, winapi
+from ... import i18n, plat
 from ...safety import read_log
 from ...util import LOG_DIR
 from ..widgets import ScrollTree, SortableTable
@@ -41,4 +41,4 @@ class LogView(View):
 
     def _open(self) -> None:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        winapi.open_in_explorer(str(LOG_DIR))
+        plat.open_in_explorer(str(LOG_DIR))

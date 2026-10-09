@@ -26,82 +26,14 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 
-from . import i18n, winapi
-from .criticality import SECURITY_PATHS, SECURITY_PROCESSES, Level, assess_process
-from .safety import PROTECTED_PROCESSES, SENSITIVE_PROCESSES, Risk, check_process_kill, log_action
+from . import i18n, plat
+from .criticality import Level, assess_process
+from .plat import know
+from .safety import Risk, check_process_kill, log_action
 from .util import fmt_count, fmt_size
 
 MB = 1024 ** 2
 GB = 1024 ** 3
-
-
-# =========================================================================
-# Catálogo de programas conocidos
-# =========================================================================
-
-# Nunca se ofrecen: seguridad y anti-trampas (cerrarlos desprotege el equipo o
-# provoca expulsiones en juegos en línea). La lista vive en `criticality`.
-_UNTOUCHABLE = SECURITY_PROCESSES
-_UNTOUCHABLE_PATHS = SECURITY_PATHS
-
-_CATALOG: dict[str, tuple[str, ...]] = {
-    "updater": (
-        "googleupdate.exe", "microsoftedgeupdate.exe", "braveupdate.exe", "adobearm.exe", "acrotray.exe",
-        "jusched.exe", "jucheck.exe", "ccxprocess.exe", "adobenotificationclient.exe",
-        "opera_autoupdate.exe", "ituneshelper.exe", "dropboxupdate.exe", "onedrivestandaloneupdater.exe",
-    ),
-    "widget": (
-        "widgets.exe", "widgetservice.exe", "phoneexperiencehost.exe", "yourphone.exe", "copilot.exe",
-        "cortana.exe", "hxtsr.exe", "widgetboard.exe", "microsoftstartfeedprovider.exe",
-        "crossdeviceservice.exe",
-    ),
-    "cloud": (
-        "onedrive.exe", "dropbox.exe", "googledrivefs.exe", "iclouddrive.exe", "icloudservices.exe",
-        "megasync.exe", "pcloud.exe", "nextcloud.exe", "box.exe", "coresync.exe",
-    ),
-    "browser": (
-        "chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "vivaldi.exe", "arc.exe",
-        "librewolf.exe", "waterfox.exe", "iexplore.exe",
-    ),
-    "comms": (
-        "discord.exe", "discordptb.exe", "discordcanary.exe", "ms-teams.exe", "teams.exe", "slack.exe",
-        "zoom.exe", "skype.exe", "telegram.exe", "whatsapp.exe", "whatsapp.root.exe", "signal.exe",
-        "ts3client_win64.exe", "teamspeak.exe", "mumble.exe", "element.exe",
-    ),
-    "media": (
-        "spotify.exe", "obs64.exe", "obs32.exe", "streamlabs obs.exe", "vlc.exe", "itunes.exe",
-        "applemusic.exe", "foobar2000.exe", "musicbee.exe", "tidal.exe", "audacity.exe",
-    ),
-    "launcher": (
-        "steam.exe", "steamwebhelper.exe", "epicgameslauncher.exe", "battle.net.exe", "eadesktop.exe",
-        "origin.exe", "upc.exe", "ubisoftconnect.exe", "galaxyclient.exe", "riotclientservices.exe",
-        "riotclientux.exe", "xboxpcapp.exe", "xboxapp.exe", "playnite.desktopapp.exe", "gamebar.exe",
-        "gamebarftserver.exe",
-    ),
-    "gpu": (
-        "nvidia share.exe", "nvidia web helper.exe", "nvidia overlay.exe", "nvcontainer.exe",
-        "nvdisplay.container.exe", "nvsphelper64.exe", "nvidia geforce experience.exe",
-        "radeonsoftware.exe", "amdrsserv.exe", "amdow.exe", "cncmd.exe", "igfxem.exe", "igcc.exe",
-        "msiafterburner.exe", "rtss.exe",
-    ),
-    "peripheral": (
-        "lghub.exe", "lghub_agent.exe", "lghub_system_tray.exe", "razer synapse 3.exe",
-        "razer synapse.exe", "razerappengine.exe", "razer central.exe", "icue.exe", "steelseriesgg.exe",
-        "steelseriesengine.exe", "steelseriessonar.exe", "armourycrate.exe", "streamdeck.exe",
-        "voicemeeter.exe", "voicemeeterpro.exe", "voicemeeter8.exe", "nahimicsvc64.exe",
-        "rtkauduservice64.exe", "ds4windows.exe", "joytokey.exe", "autohotkey.exe", "autohotkey64.exe",
-        "autohotkeyu64.exe", "powertoys.exe",
-    ),
-    "network": (
-        "openvpn-gui.exe", "nordvpn.exe", "protonvpn.client.exe", "wireguard.exe", "expressvpn.exe",
-        "mullvad vpn.exe", "tailscale-ipn.exe",
-    ),
-}
-_CATEGORY_OF = {name: cat for cat, names in _CATALOG.items() for name in names}
-
-# Procesos auxiliares que siempre pertenecen al programa que los lanzó, aunque su
-# ejecutable esté en otra carpeta (p. ej. la vista web incrustada de Teams o Widgets).
-_HELPERS = {"msedgewebview2.exe", "crashpad_handler.exe", "cefsharp.browsersubprocess.exe"}
 
 
 class Action(str, Enum):
@@ -110,10 +42,6 @@ class Action(str, Enum):
     CLOSE = "close"          # pedir el cierre / finalizar
 
 
-# Utilidades de dispositivos que no están en el catálogo: se reconocen por el nombre.
-_PERIPHERAL_HINTS = ("tablet", "wacom", "audio", "hotkey", "touchpad", "synaptics", "logi", "razer",
-                     "corsair", "steelseries")
-
 # Por debajo de esto, ralentizar un proceso en segundo plano no aporta nada apreciable.
 SMALL_PRIVATE = 50 * MB
 SMALL_CPU = 1.0
@@ -121,10 +49,10 @@ SMALL_CPU = 1.0
 
 def category_of(name: str) -> str:
     name = name.lower()
-    cat = _CATEGORY_OF.get(name)
+    cat = know.CATEGORY_OF.get(name)
     if cat:
         return cat
-    return "peripheral" if any(h in name for h in _PERIPHERAL_HINTS) else "other"
+    return "peripheral" if any(h in name for h in know.PERIPHERAL_HINTS) else "other"
 
 
 def suggest(category: str, has_window: bool, profile: str, private: int = SMALL_PRIVATE,
@@ -198,21 +126,25 @@ def program_key(p) -> str:
 
 
 def _norm(path: str) -> str:
-    return path.replace("/", "\\").lower().rstrip("\\")
+    return know.norm(path)
 
 
 def _under(path: str, folder: str) -> bool:
     if not path or not folder:
         return False
-    path, folder = _norm(path), _norm(folder)
-    return path == folder or path.startswith(folder + "\\")
+    return know.under(know.norm(path), know.norm(folder))
 
 
 def _install_dir(path: str) -> str:
-    """Carpeta del ejecutable; '' si cuelga directamente de la raíz de una unidad (ahí
-    «la misma carpeta» sería el disco entero)."""
-    folder = _norm(path).rpartition("\\")[0]
-    return folder if "\\" in folder else ""
+    """Carpeta del programa, o '' si es una carpeta compartida por muchos programas."""
+    return know.install_dir(path)
+
+
+def _sysdirs(windir) -> tuple[str, ...]:
+    """Carpetas del sistema: las de este equipo, o las que se indiquen (tests)."""
+    if windir is None:
+        return know.system_dirs()
+    return (windir,) if isinstance(windir, str) else tuple(windir)
 
 
 def _valid_parent(p, by_pid: dict):
@@ -226,21 +158,20 @@ def _valid_parent(p, by_pid: dict):
     return q
 
 
-def _exclusion(p, by_pid: dict, self_chain: set[int], self_keys: set[str], windir: str) -> str:
+def _exclusion(p, by_pid: dict, self_chain: set[int], self_keys: set[str], sysdirs: tuple[str, ...]) -> str:
     """Motivo por el que un proceso jamás se propone ('' = se puede proponer)."""
     name = p.name.lower()
-    if p.pid in (0, 4) or name in PROTECTED_PROCESSES or name in SENSITIVE_PROCESSES:
+    if p.pid in know.VITAL_PIDS or name in know.PROTECTED_PROCESSES or name in know.SENSITIVE_PROCESSES:
         return "system"
     if p.pid in self_chain or program_key(p) in self_keys:
         return "self"
-    if name in _UNTOUCHABLE or any(h in _norm(p.path) for h in _UNTOUCHABLE_PATHS):
+    if name in know.SECURITY_PROCESSES or any(h in _norm(p.path) for h in know.SECURITY_PATHS):
         return "security"
     if not p.accessible:
         return "no_access"
-    if not p.path or _under(p.path, windir):
+    if not p.path or any(_under(p.path, d) for d in sysdirs):
         return "system"
-    parent = _valid_parent(p, by_pid)
-    if parent is not None and parent.name.lower() == "services.exe":
+    if know.is_service(p, _valid_parent(p, by_pid)):
         return "service"
     return ""
 
@@ -264,7 +195,7 @@ def window_targets(procs: list, windows: list) -> list[tuple[str, str]]:
     seen: dict[str, str] = {}
     for w in windows:
         p = by_pid.get(w.pid)
-        if p is None or p.pid == os.getpid() or p.name.lower() in SENSITIVE_PROCESSES:
+        if p is None or p.pid == os.getpid() or p.name.lower() in know.SENSITIVE_PROCESSES:
             continue
         key = program_key(p)
         if key not in seen:
@@ -276,7 +207,7 @@ def window_targets(procs: list, windows: list) -> list[tuple[str, str]]:
 def _exclusions(procs: list, self_pid: int | None = None, windir: str | None = None) -> dict[int, str]:
     """PID -> motivo por el que no se toca ('' = se puede proponer)."""
     self_pid = os.getpid() if self_pid is None else self_pid
-    windir = windir if windir is not None else os.environ.get("WINDIR", r"C:\Windows")
+    sysdirs = _sysdirs(windir)
     by_pid = {p.pid: p for p in procs}
 
     # La propia aplicación y quien la lanzó (consola, VS Code...) no se tocan.
@@ -287,17 +218,17 @@ def _exclusions(procs: list, self_pid: int | None = None, windir: str | None = N
         cur = _valid_parent(cur, by_pid)
 
     self_keys = {program_key(by_pid[pid]) for pid in self_chain
-                 if by_pid[pid].path and not _under(by_pid[pid].path, windir)}
+                 if by_pid[pid].path and not any(_under(by_pid[pid].path, d) for d in sysdirs)}
 
-    excluded = {p.pid: _exclusion(p, by_pid, self_chain, self_keys, windir) for p in procs}
+    excluded = {p.pid: _exclusion(p, by_pid, self_chain, self_keys, sysdirs) for p in procs}
     # Un auxiliar (vista web incrustada...) de algo que no se toca tampoco se toca.
     for p in procs:
-        if excluded[p.pid] or p.name.lower() not in _HELPERS:
+        if excluded[p.pid] or p.name.lower() not in know.HELPERS:
             continue
         host, hops = _valid_parent(p, by_pid), 0
-        while host is not None and host.name.lower() in _HELPERS and hops < 16:
+        while host is not None and host.name.lower() in know.HELPERS and hops < 16:
             host, hops = _valid_parent(host, by_pid), hops + 1
-        if host is not None and excluded[host.pid] and host.name.lower() not in _HELPERS:
+        if host is not None and excluded[host.pid] and host.name.lower() not in know.HELPERS:
             excluded[p.pid] = excluded[host.pid]
     return excluded
 
@@ -347,7 +278,7 @@ def build_plan(procs: list, windows: list, target_key: str = "", profile: str = 
         parent = _valid_parent(p, by_pid)
         if parent is not None and not excluded[parent.pid] and depth < 64:
             r = root_of(parent, depth + 1)
-            if p.name.lower() in _HELPERS or _under(p.path, _install_dir(r.path)):
+            if p.name.lower() in know.HELPERS or _under(p.path, _install_dir(r.path)):
                 roots[p.pid] = r
         return roots[p.pid]
 
@@ -438,7 +369,7 @@ class Session:
     def active(self) -> bool:
         return bool(self.throttled or self.boosted)
 
-    def prune(self, api=winapi) -> None:
+    def prune(self, api=plat) -> None:
         """Olvida los procesos que ya han terminado."""
         self.throttled = [t for t in self.throttled if api.process_alive(t.pid, t.create_time)]
         self.boosted = [t for t in self.boosted if api.process_alive(t.pid, t.create_time)]
@@ -491,10 +422,11 @@ def describe_plan(plan: Plan, options: Options, limit: int = 60) -> str:
 def _may_touch(m) -> bool:
     """Segunda barrera, justo antes de actuar: nunca procesos esenciales ni la propia app."""
     allowed, _risk, _why = check_process_kill(m.name, m.pid)
-    return allowed and m.name.lower() not in SENSITIVE_PROCESSES and m.name.lower() not in _UNTOUCHABLE
+    name = m.name.lower()
+    return allowed and name not in know.SENSITIVE_PROCESSES and name not in know.SECURITY_PROCESSES
 
 
-def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=winapi, log=log_action,
+def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=plat, log=log_action,
                sleep=time.sleep, clock=time.monotonic) -> ApplyResult:
     """Ejecuta lo que el usuario ha confirmado. Cada proceso se identifica por PID e
     instante de creación: si ya no es el mismo, se salta."""
@@ -573,9 +505,9 @@ def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=win
 
     if options.boost_target:
         for m in plan.target_members:
-            if not m.accessible or not _may_touch(m) or m.priority not in (0, winapi.PRIORITY_NORMAL):
+            if not m.accessible or not _may_touch(m) or m.priority not in (0, plat.PRIORITY_NORMAL):
                 continue
-            ok, msg, prev = api.set_priority(m.pid, winapi.PRIORITY_ABOVE_NORMAL, m.create_time)
+            ok, msg, prev = api.set_priority(m.pid, plat.PRIORITY_ABOVE_NORMAL, m.create_time)
             if ok:
                 res.boosted += 1
                 session.boosted.append(Touched(m.pid, m.create_time, m.name, prev))
@@ -588,7 +520,7 @@ def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=win
     return res
 
 
-def restore(session: Session = SESSION, api=winapi, log=log_action) -> tuple[int, list[str]]:
+def restore(session: Session = SESSION, api=plat, log=log_action) -> tuple[int, list[str]]:
     """Deshace lo ralentizado y lo priorizado. Devuelve (procesos restaurados, fallos)."""
     done, failures = 0, []
     for t in session.throttled:
@@ -610,7 +542,7 @@ def restore(session: Session = SESSION, api=winapi, log=log_action) -> tuple[int
     return done, failures
 
 
-def reopen(session: Session = SESSION, api=winapi, log=log_action) -> list[str]:
+def reopen(session: Session = SESSION, api=plat, log=log_action) -> list[str]:
     """Vuelve a abrir los programas que se cerraron. Devuelve los que no se pudo."""
     failures = []
     for name, path in session.closed:
@@ -673,7 +605,7 @@ class Report:
 
 
 def take_samples(count: int = 10, interval: float = 1.0, should_stop=None, progress=None,
-                 api=winapi, sleep=time.sleep, clock=time.monotonic) -> list[tuple[float, list]]:
+                 api=plat, sleep=time.sleep, clock=time.monotonic) -> list[tuple[float, list]]:
     """Toma varias muestras de todos los procesos. Solo lee contadores."""
     samples = []
     for i in range(max(2, count)):
@@ -768,8 +700,7 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
         for m in u.members:
             parent = _valid_parent(m, by_pid)
             found.append(assess_process(m.name, m.path, m.pid, m.accessible,
-                                        service=parent is not None and parent.name.lower() == "services.exe",
-                                        windir=windir, self_pid=self_pid))
+                                        service=know.is_service(m, parent), windir=windir, self_pid=self_pid))
         top = max(found, key=lambda a: a.level)
         u.level, u.what, u.risk = int(top.level), top.what, top.risk
         u.own = u.key == own_key

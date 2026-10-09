@@ -12,7 +12,7 @@ import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-from .. import archiver, i18n, winapi
+from .. import archiver, i18n, plat
 from ..safety import log_action
 from ..util import fmt_count, fmt_size
 from . import theme, winframe
@@ -29,7 +29,7 @@ class CompressDialog(tk.Toplevel):
         self.stop = threading.Event()
         self.running = False
         self._started = 0.0
-        mem = winapi.memory_status()
+        mem = plat.memory_status()
         self._ram = (mem.total, mem.available) if mem else (0, 0)
 
         self.title(i18n.t("zip.title"))
@@ -372,7 +372,7 @@ class CompressDialog(tk.Toplevel):
 
     def _open_folder(self) -> None:
         if self.result:
-            winapi.open_in_explorer(self.result.dest)
+            plat.open_in_explorer(self.result.dest)
 
 
 def _duration(seconds: float) -> str:

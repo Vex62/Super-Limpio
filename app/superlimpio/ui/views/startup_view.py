@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from tkinter import ttk
 
-from ... import i18n, startup, winapi
-from ...systools import run_tool, tools
+from ... import i18n, startup, plat
 from .. import theme
 from ..widgets import ScrollTree, SortableTable
 from .base import View
@@ -24,8 +23,7 @@ class StartupView(View):
         ttk.Button(bar, text=i18n.t("common.open_location"), command=self.open_location).pack(
             side="left", padx=self.px(6))
         ttk.Button(bar, text=i18n.t("startup.manage"), style="Accent.TButton",
-                   command=lambda: run_tool(next(t for t in tools() if t.id == "taskmgr_startup"))) \
-            .pack(side="right")
+                   command=self.manage).pack(side="right")
 
         cols = [("name", i18n.t("startup.col.name"), 230, "w"), ("state", i18n.t("startup.col.state"), 95, "w"),
                 ("location", i18n.t("startup.col.source"), 170, "w"),
@@ -56,10 +54,15 @@ class StartupView(View):
         on = sum(1 for i in items if i.enabled is not False)
         self.status(i18n.t("startup.status", n=len(items), on=on))
 
+    def manage(self) -> None:
+        ok, msg = startup.open_manager()
+        if not ok:
+            self.status(msg)
+
     def open_location(self) -> None:
         sel = self.table.selected()
         if sel and sel[0].exe:
-            ok, msg = winapi.open_in_explorer(sel[0].exe)
+            ok, msg = plat.open_in_explorer(sel[0].exe)
             if not ok:
                 self.status(msg)
 

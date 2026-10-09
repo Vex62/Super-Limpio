@@ -1,23 +1,30 @@
-"""Envoltorios mínimos de la API de Windows mediante ctypes.
+"""Windows: envoltorios mínimos de su API mediante ctypes, y sus listas de datos.
 
 Solo se usan funciones documentadas y habituales (kernel32, psapi, shell32, user32,
-dwmapi). No se inyecta código, no se tocan servicios ni se modifica el registro, y
-nunca se pide acceso a la memoria de otros procesos.
-En sistemas que no son Windows todas las funciones devuelven valores neutros,
-lo que permite ejecutar los tests de lógica en cualquier plataforma.
+dwmapi). No se inyecta código, no se tocan servicios ni se modifica el registro (solo
+se lee), y nunca se pide acceso a la memoria de otros procesos.
+
+El módulo se puede importar en cualquier sistema (fuera de Windows las funciones dan
+valores neutros): así los tests de su lógica pura corren en cualquier equipo.
 """
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
+import re
 import string
 import sys
-from dataclasses import dataclass
 
-from . import i18n
-from .util import IS_WINDOWS
+from .. import i18n
+from .common import (CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT, PRIORITY_ABOVE_NORMAL,  # noqa: F401
+                     PRIORITY_BELOW_NORMAL, PRIORITY_IDLE, PRIORITY_NORMAL, MemoryStatus, PerfInfo,
+                     RawProcess, WindowInfo)
+
+IS_WINDOWS = sys.platform == "win32"
 
 if IS_WINDOWS:
+    import winreg
     import ctypes
     from ctypes import wintypes
 
@@ -178,20 +185,6 @@ if IS_WINDOWS:
     _PROCESS_POWER_THROTTLING = 4            # clase ProcessPowerThrottling
     _POWER_THROTTLING_EXECUTION_SPEED = 0x1
 
-# Clases de prioridad (las mismas que muestra el Administrador de tareas)
-PRIORITY_IDLE = 0x40
-PRIORITY_BELOW_NORMAL = 0x4000
-PRIORITY_NORMAL = 0x20
-PRIORITY_ABOVE_NORMAL = 0x8000
-PRIORITY_HIGH = 0x80
-PRIORITY_REALTIME = 0x100
-
-FILE_ATTRIBUTE_REPARSE_POINT = 0x400
-FILE_ATTRIBUTE_OFFLINE = 0x1000
-FILE_ATTRIBUTE_RECALL_ON_OPEN = 0x40000
-FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS = 0x400000
-CLOUD_ONLY_MASK = FILE_ATTRIBUTE_OFFLINE | FILE_ATTRIBUTE_RECALL_ON_OPEN | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS
-
 
 # =========================================================================
 # Información general
@@ -209,7 +202,7 @@ def is_admin() -> bool:
 def list_drives() -> list[str]:
     """Devuelve las unidades montadas (C:\\, D:\\ ...)."""
     if not IS_WINDOWS:
-        return ["/"]
+        return []
     if hasattr(os, "listdrives"):  # Python 3.12+
         try:
             return sorted(os.listdrives())
@@ -219,31 +212,9 @@ def list_drives() -> list[str]:
     return [f"{letter}:\\" for i, letter in enumerate(string.ascii_uppercase) if mask & (1 << i)]
 
 
-@dataclass
-class MemoryStatus:
-    total: int
-    available: int
-    load_pct: int
-    commit_total: int
-    commit_available: int
-
-    @property
-    def used(self) -> int:
-        return self.total - self.available
-
-
 def memory_status() -> MemoryStatus | None:
     if not IS_WINDOWS:
-        try:
-            info = {}
-            with open("/proc/meminfo", encoding="ascii") as fh:
-                for line in fh:
-                    k, v = line.split(":", 1)
-                    info[k] = int(v.strip().split()[0]) * 1024
-            total, avail = info["MemTotal"], info["MemAvailable"]
-            return MemoryStatus(total, avail, int((total - avail) * 100 / total), 0, 0)
-        except (OSError, KeyError, ValueError):
-            return None
+        return None
     st = MEMORYSTATUSEX()
     st.dwLength = ctypes.sizeof(MEMORYSTATUSEX)
     if not kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
@@ -256,29 +227,13 @@ def memory_status() -> MemoryStatus | None:
 # Procesos
 # =========================================================================
 
-@dataclass
-class RawProcess:
-    pid: int
-    ppid: int
-    name: str
-    threads: int
-    path: str = ""
-    working_set: int = 0
-    private: int = 0
-    cpu_time: float = 0.0  # segundos de CPU acumulados (kernel + usuario)
-    accessible: bool = False
-    create_time: float = 0.0  # instante de creación: con el PID identifica al proceso sin ambigüedad
-    handles: int = 0
-    priority: int = 0
-
-
 def _filetime_seconds(ft) -> float:
     return ((ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10_000_000
 
 
 def list_processes() -> list[RawProcess]:
     if not IS_WINDOWS:
-        return _list_processes_posix()
+        return []
     procs: list[RawProcess] = []
     snap = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0)
     if not snap or snap == INVALID_HANDLE_VALUE:
@@ -325,36 +280,6 @@ def list_processes() -> list[RawProcess]:
         finally:
             kernel32.CloseHandle(h)
     return procs
-
-
-def _list_processes_posix() -> list[RawProcess]:
-    """Implementación mínima para desarrollo/tests fuera de Windows."""
-    out = []
-    page = os.sysconf("SC_PAGE_SIZE") if hasattr(os, "sysconf") else 4096
-    tick = os.sysconf("SC_CLK_TCK") if hasattr(os, "sysconf") else 100
-    for d in os.listdir("/proc") if os.path.isdir("/proc") else []:
-        if not d.isdigit():
-            continue
-        try:
-            with open(f"/proc/{d}/stat", encoding="utf-8", errors="replace") as fh:
-                stat = fh.read()
-            name = stat[stat.index("(") + 1: stat.rindex(")")]
-            fields = stat[stat.rindex(")") + 2:].split()
-            with open(f"/proc/{d}/statm", encoding="ascii") as fh:
-                statm = fh.read().split()
-            try:
-                path = os.readlink(f"/proc/{d}/exe")
-            except OSError:
-                path = ""
-            out.append(RawProcess(
-                pid=int(d), ppid=int(fields[1]), name=name, threads=int(fields[17]), path=path,
-                working_set=int(statm[1]) * page,
-                private=(int(statm[1]) - int(statm[2])) * page,
-                cpu_time=(int(fields[11]) + int(fields[12])) / tick, accessible=True,
-                create_time=int(fields[19]) / tick))
-        except (OSError, ValueError, IndexError):
-            continue
-    return out
 
 
 def _open_verified(access: int, pid: int, create_time: float | None):
@@ -494,13 +419,6 @@ def trim_working_set(pid: int, create_time: float | None = None) -> tuple[bool, 
 # Ventanas: qué procesos tienen una ventana a la vista
 # =========================================================================
 
-@dataclass
-class WindowInfo:
-    hwnd: int
-    pid: int
-    title: str
-
-
 def list_windows() -> list[WindowInfo]:
     """Ventanas principales visibles (las que saldrían en Alt+Tab), con su proceso."""
     if not IS_WINDOWS:
@@ -553,19 +471,6 @@ def close_window(hwnd: int) -> bool:
 # =========================================================================
 # Contadores globales del sistema
 # =========================================================================
-
-@dataclass
-class PerfInfo:
-    commit_total: int
-    commit_limit: int
-    commit_peak: int
-    system_cache: int
-    kernel_paged: int
-    kernel_nonpaged: int
-    handles: int
-    processes: int
-    threads: int
-
 
 def performance_info() -> PerfInfo | None:
     if not IS_WINDOWS:
@@ -675,3 +580,361 @@ def relaunch_as_admin(script: str) -> tuple[bool, str]:
     """Vuelve a abrir la aplicación con elevación. Windows muestra el aviso UAC."""
     exe, params = admin_command(script)
     return shell_execute(exe, params, verb="runas")
+
+
+def capabilities() -> dict[str, bool]:
+    """Lo que esta plataforma sabe hacer; la interfaz esconde lo que no."""
+    return {
+        "elevate": True,         # reabrirse como administrador
+        "trim": True,            # recortar la RAM de un proceso
+        "boost": True,           # subir la prioridad del programa objetivo
+        "throttle_undo": True,   # el modo de eficiencia se puede deshacer
+        "windows": True,         # se sabe qué programas tienen una ventana abierta
+        "apps_settings": True,   # hay un panel del sistema para las apps de la tienda
+    }
+
+
+# =========================================================================
+# Limpieza: ubicaciones conocidas de Windows
+# =========================================================================
+
+def _browser_profiles(base: str) -> list[str]:
+    """Rutas de caché de navegadores Chromium para todos los perfiles."""
+    out = []
+    for sub in (r"Cache\Cache_Data", "Code Cache", "GPUCache", r"Service Worker\CacheStorage"):
+        out.append(os.path.join(base, "*", sub))
+    out.append(os.path.join(base, "ShaderCache"))
+    out.append(os.path.join(base, "GrShaderCache"))
+    return out
+
+
+def cleaner_categories() -> list[dict]:
+    """Categorías de limpieza. Cada una es una lista blanca cerrada de ubicaciones; «risk»
+    es el valor de safety.Risk (1 bajo · 2 medio · 3 alto)."""
+    L = r"%LOCALAPPDATA%"
+    A = r"%APPDATA%"
+    U = r"%USERPROFILE%"
+    W = r"%WINDIR%"
+    P = r"%PROGRAMDATA%"
+
+    def cat(cat_id: str, group: str, **kw) -> dict:
+        return {"id": cat_id, "group": group, **kw}
+
+    return [
+        # ----------------------------------------------------------- Windows
+        cat("temp_user", "Windows", dirs=[r"%TEMP%"], min_age_hours=24, risk=1),
+        cat("temp_win", "Windows", dirs=[rf"{W}\Temp"], min_age_hours=24, risk=2, admin=True),
+        cat("thumbs", "Windows",
+            files=[rf"{L}\Microsoft\Windows\Explorer\thumbcache_*.db",
+                   rf"{L}\Microsoft\Windows\Explorer\iconcache_*.db"], risk=1),
+        cat("wer", "Windows",
+            dirs=[rf"{L}\Microsoft\Windows\WER", rf"{P}\Microsoft\Windows\WER\ReportArchive",
+                  rf"{P}\Microsoft\Windows\WER\ReportQueue", rf"{P}\Microsoft\Windows\WER\Temp"],
+            risk=1),
+        cat("dumps", "Windows",
+            dirs=[rf"{L}\CrashDumps"], files=[rf"{W}\Minidump\*.dmp", rf"{W}\MEMORY.DMP"],
+            risk=1),
+        cat("wu", "Windows",
+            dirs=[rf"{W}\SoftwareDistribution\Download"], risk=2, admin=True, default_on=False),
+        cat("do", "Windows",
+            dirs=[rf"{W}\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache"],
+            risk=2, admin=True, default_on=False),
+        cat("recycle", "Windows", special="recycle_bin", risk=3, default_on=False),
+        # ------------------------------------------------------- Navegadores
+        cat("edge", "Navegadores", dirs=_browser_profiles(rf"{L}\Microsoft\Edge\User Data"),
+            close_apps="msedge.exe"),
+        cat("chrome", "Navegadores", dirs=_browser_profiles(rf"{L}\Google\Chrome\User Data"),
+            close_apps="chrome.exe"),
+        cat("brave", "Navegadores",
+            dirs=_browser_profiles(rf"{L}\BraveSoftware\Brave-Browser\User Data"), close_apps="brave.exe"),
+        cat("firefox", "Navegadores",
+            dirs=[rf"{L}\Mozilla\Firefox\Profiles\*\cache2"], close_apps="firefox.exe"),
+        # ------------------------------------------------------- Desarrollo
+        cat("pip", "Desarrollo", dirs=[rf"{L}\pip\Cache"], default_on=False),
+        cat("npm", "Desarrollo",
+            dirs=[rf"{L}\npm-cache", rf"{A}\npm-cache", rf"{L}\Yarn\Cache", rf"{L}\pnpm-cache"],
+            default_on=False),
+        cat("nuget", "Desarrollo",
+            dirs=[rf"{L}\NuGet\v3-cache", rf"{L}\NuGet\plugins-cache"], default_on=False),
+        cat("gradle", "Desarrollo", dirs=[rf"{U}\.gradle\caches"], default_on=False),
+        cat("cargo", "Desarrollo", dirs=[rf"{U}\.cargo\registry\cache"], default_on=False),
+        cat("vscode", "Desarrollo",
+            dirs=[rf"{A}\Code\Cache", rf"{A}\Code\CachedData", rf"{A}\Code\CachedExtensionVSIXs",
+                  rf"{A}\Code\Code Cache", rf"{A}\Code\GPUCache"], close_apps="Code.exe"),
+        # --------------------------------------------------------- Programas
+        cat("discord", "Aplicaciones",
+            dirs=[rf"{A}\discord\Cache", rf"{A}\discord\Code Cache", rf"{A}\discord\GPUCache",
+                  rf"{A}\Slack\Cache", rf"{A}\Slack\Code Cache",
+                  rf"{L}\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\Default\Cache"],
+            default_on=False),
+        cat("dx", "Aplicaciones",
+            dirs=[rf"{L}\D3DSCache", rf"{L}\NVIDIA\DXCache", rf"{L}\NVIDIA\GLCache", rf"{L}\AMD\DxCache"],
+            default_on=False),
+    ]
+
+
+# =========================================================================
+# Arranque: qué se inicia con Windows (solo lectura del registro)
+# =========================================================================
+
+_APPROVED = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved"
+
+
+def _expand(path: str) -> str:
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(path)))
+
+
+def _approved_map(hive, sub: str, view: int) -> dict[str, bool]:
+    out: dict[str, bool] = {}
+    try:
+        with winreg.OpenKey(hive, f"{_APPROVED}\\{sub}", 0, winreg.KEY_READ | view) as k:
+            i = 0
+            while True:
+                try:
+                    name, data, _t = winreg.EnumValue(k, i)
+                except OSError:
+                    break
+                i += 1
+                if isinstance(data, bytes) and data:
+                    out[name.lower()] = data[0] in (0x02, 0x06)  # pares = activado
+    except OSError:
+        pass
+    return out
+
+
+def startup_entries() -> list[dict]:
+    """Entradas de arranque: {name, command, location, enabled (None = una sola vez), exe}."""
+    if not IS_WINDOWS:
+        return []
+    items: list[dict] = []
+    reg_sources = [
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
+         i18n.t("startup.src.hkcu_run"), "Run"),
+        (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\RunOnce", 0,
+         i18n.t("startup.src.hkcu_runonce"), None),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run",
+         winreg.KEY_WOW64_64KEY, i18n.t("startup.src.hklm_run"), "Run"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\Run",
+         winreg.KEY_WOW64_32KEY, i18n.t("startup.src.hklm_run32"), "Run32"),
+        (winreg.HKEY_LOCAL_MACHINE, r"Software\Microsoft\Windows\CurrentVersion\RunOnce",
+         winreg.KEY_WOW64_64KEY, i18n.t("startup.src.hklm_runonce"), None),
+    ]
+    for hive, path, view, label, approved_sub in reg_sources:
+        approved = _approved_map(hive, approved_sub, view) if approved_sub else {}
+        try:
+            with winreg.OpenKey(hive, path, 0, winreg.KEY_READ | view) as k:
+                i = 0
+                while True:
+                    try:
+                        name, data, _t = winreg.EnumValue(k, i)
+                    except OSError:
+                        break
+                    i += 1
+                    cmd = str(data)
+                    exe, _ = split_command(_expand(cmd) if "%" in cmd else cmd)
+                    items.append({"name": name or i18n.t("startup.default_name"), "command": cmd,
+                                  "location": label, "exe": exe,
+                                  "enabled": approved.get(name.lower(), True) if approved_sub else None})
+        except OSError:
+            continue
+
+    folders = [
+        (_expand(r"%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup"),
+         i18n.t("startup.src.folder_user"), winreg.HKEY_CURRENT_USER),
+        (_expand(r"%PROGRAMDATA%\Microsoft\Windows\Start Menu\Programs\StartUp"),
+         i18n.t("startup.src.folder_all"), winreg.HKEY_LOCAL_MACHINE),
+    ]
+    for folder, label, hive in folders:
+        approved = _approved_map(hive, "StartupFolder", 0)
+        try:
+            for entry in os.scandir(folder):
+                if entry.name.lower() == "desktop.ini":
+                    continue
+                items.append({"name": entry.name, "command": entry.path, "location": label,
+                              "exe": entry.path, "enabled": approved.get(entry.name.lower(), True)})
+        except OSError:
+            continue
+    return items
+
+
+def open_startup_manager() -> tuple[bool, str]:
+    """Abre el Administrador de tareas por la pestaña Inicio: la vía oficial y reversible."""
+    return shell_execute("taskmgr.exe", "/0 /startup")
+
+
+# =========================================================================
+# Programas instalados (lectura del registro) y su desinstalador oficial
+# =========================================================================
+
+UNINSTALL_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
+
+
+def _read_value(key, name: str):
+    try:
+        val, _typ = winreg.QueryValueEx(key, name)
+        return val
+    except OSError:
+        return None
+
+
+def _fmt_install_date(raw) -> str:
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    if re.fullmatch(r"\d{8}", s):
+        try:
+            return _dt.datetime.strptime(s, "%Y%m%d").strftime("%Y-%m-%d")
+        except ValueError:
+            return s
+    return s
+
+
+def installed_programs() -> list[dict]:
+    """Programas instalados, como diccionarios con los campos de programs.Program."""
+    if not IS_WINDOWS:
+        return []
+    sources = [
+        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_64KEY, "machine64", "HKLM"),
+        (winreg.HKEY_LOCAL_MACHINE, winreg.KEY_WOW64_32KEY, "machine32", "HKLM"),
+        (winreg.HKEY_CURRENT_USER, 0, "user", "HKCU"),
+    ]
+    seen: set[tuple[str, str]] = set()
+    programs: list[dict] = []
+    for hive, view, scope, hive_name in sources:
+        try:
+            root = winreg.OpenKey(hive, UNINSTALL_SUBKEY, 0, winreg.KEY_READ | view)
+        except OSError:
+            continue
+        with root:
+            i = 0
+            while True:
+                try:
+                    sub = winreg.EnumKey(root, i)
+                except OSError:
+                    break
+                i += 1
+                try:
+                    with winreg.OpenKey(root, sub, 0, winreg.KEY_READ | view) as k:
+                        name = _read_value(k, "DisplayName")
+                        if not name:
+                            continue
+                        if _read_value(k, "SystemComponent") == 1:
+                            continue
+                        if _read_value(k, "ParentKeyName") or _read_value(k, "ReleaseType") in (
+                                "Update", "Hotfix", "Security Update"):
+                            continue
+                        uninstall = _read_value(k, "UninstallString") or ""
+                        is_msi = _read_value(k, "WindowsInstaller") == 1
+                        if not uninstall and not is_msi:
+                            continue
+                        version = str(_read_value(k, "DisplayVersion") or "")
+                        dedup = (name.strip().lower(), version)
+                        if dedup in seen:
+                            continue
+                        seen.add(dedup)
+                        size_kb = _read_value(k, "EstimatedSize")
+                        msi_code = sub if (is_msi and re.fullmatch(r"\{[0-9A-Fa-f\-]{36}\}", sub)) else ""
+                        programs.append(dict(
+                            name=name.strip(),
+                            publisher=str(_read_value(k, "Publisher") or "").strip(),
+                            version=version,
+                            estimated_size=int(size_kb) * 1024 if isinstance(size_kb, int) else 0,
+                            install_date=_fmt_install_date(_read_value(k, "InstallDate")),
+                            install_location=str(_read_value(k, "InstallLocation") or ""),
+                            uninstall_string=uninstall,
+                            quiet_uninstall_string=str(_read_value(k, "QuietUninstallString") or ""),
+                            modify_path=str(_read_value(k, "ModifyPath") or ""),
+                            msi_code=msi_code,
+                            scope=scope,
+                            reg_key=f"{hive_name}\\{UNINSTALL_SUBKEY}\\{sub}",
+                            display_icon=str(_read_value(k, "DisplayIcon") or ""),
+                        ))
+                except OSError:
+                    continue
+    programs.sort(key=lambda p: p["name"].lower())
+    return programs
+
+
+def split_command(cmd: str) -> tuple[str, str]:
+    """Separa «ejecutable» y «parámetros» de una UninstallString sin usar un shell.
+
+    Admite: "C:\\ruta con espacios\\unins000.exe" /SILENT
+            C:\\ruta con espacios\\uninstall.exe --flag   (sin comillas)
+            MsiExec.exe /I{GUID}
+    """
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return "", ""
+    if cmd.startswith('"'):
+        end = cmd.find('"', 1)
+        if end == -1:
+            return cmd.strip('"'), ""
+        return _expand(cmd[1:end]) if "%" in cmd[1:end] else cmd[1:end], cmd[end + 1:].strip()
+    # Sin comillas: buscar el final del ejecutable (.exe/.cmd/.bat/.com)
+    m = re.match(r"^(.+?\.(?:exe|com|bat|cmd))(?=\s|$)(.*)$", cmd, re.IGNORECASE)
+    if m:
+        exe = m.group(1)
+        if "%" in exe:
+            exe = _expand(exe)
+        return exe, m.group(2).strip()
+    parts = cmd.split(None, 1)
+    return parts[0], parts[1] if len(parts) > 1 else ""
+
+
+def uninstall_command(p) -> tuple[str, str, list[str], bool]:
+    """(ejecutable, parámetros, avisos, crítico) para desinstalar con el desinstalador
+    oficial del programa. «Crítico» = usa un intérprete de comandos."""
+    warnings: list[str] = []
+    critical = False
+    if p.msi_code:
+        # Windows Installer: /X = desinstalar (nunca /I, que reinstala/modifica)
+        exe, params = "msiexec.exe", f"/x {p.msi_code}"
+    else:
+        exe, params = split_command(p.uninstall_string)
+        if os.path.basename(exe).lower() == "msiexec.exe":
+            params = re.sub(r"(?i)/I(\s*\{)", r"/X\1", params)
+    base = os.path.basename(exe).lower()
+    if os.path.isabs(exe) and not os.path.exists(exe):
+        warnings.append(i18n.t("programs.warn.missing"))
+    if base in ("cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "rundll32.exe"):
+        warnings.append(i18n.t("programs.warn.interpreter", base=base))
+        critical = True
+    if p.scope.startswith("machine"):
+        warnings.append(i18n.t("programs.warn.machine"))
+    return exe, params, warnings, critical
+
+
+def open_apps_settings() -> tuple[bool, str]:
+    """Las apps de Microsoft Store se quitan desde Configuración."""
+    return shell_execute("ms-settings:appsfeatures")
+
+
+# =========================================================================
+# Herramientas del sistema: comandos oficiales de Windows
+# =========================================================================
+
+def system_tools() -> list[dict]:
+    """Herramientas que se ofrecen; «risk» es el valor de safety.Risk (hasta 4, crítico)."""
+    def tool(tool_id: str, exe: str, params: str = "", **kw) -> dict:
+        return {"id": tool_id, "exe": exe, "params": params, **kw}
+
+    return [
+        tool("storage", "ms-settings:storagesense"),
+        tool("apps", "ms-settings:appsfeatures"),
+        tool("taskmgr_startup", "taskmgr.exe", "/0 /startup"),
+        tool("cleanmgr", "cleanmgr.exe"),
+        tool("restore", "SystemPropertiesProtection.exe"),
+        tool("analyze_sxs", "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore",
+             admin=True, risk=2, keep_console=True),
+        tool("clean_sxs", "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /StartComponentCleanup",
+             admin=True, risk=4, keep_console=True),
+        tool("hiber_off", "cmd.exe", "/k powercfg.exe /hibernate off",
+             admin=True, risk=4, keep_console=True),
+        tool("hiber_on", "cmd.exe", "/k powercfg.exe /hibernate on",
+             admin=True, risk=3, keep_console=True),
+    ]
+
+
+def run_system_tool(exe: str, params: str = "", admin: bool = False, keep_console: bool = False) -> tuple[bool, str]:
+    """Las que requieren administrador se lanzan con «runas»: Windows muestra su aviso UAC."""
+    return shell_execute(exe, params or None, verb="runas" if admin else "open")

@@ -7,7 +7,7 @@ import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
 
-from ... import devdeps, fileops, i18n, winapi
+from ... import devdeps, fileops, i18n, plat
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_size
 from .. import dialogs, theme
@@ -155,7 +155,7 @@ class DevDepsView(View):
     def _open(self) -> None:
         s = self.table.selected()
         if s:
-            winapi.open_in_explorer(s[0].path)
+            plat.open_in_explorer(s[0].path)
 
     def _delete(self, permanent: bool) -> None:
         if self._deleting:

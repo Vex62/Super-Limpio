@@ -12,10 +12,15 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-from superlimpio import cleaner, devdeps, i18n, scanner  # noqa: E402
+from superlimpio import cleaner, devdeps, i18n, plat, scanner  # noqa: E402
 from superlimpio.programs import Program, build_uninstall_plan, split_command  # noqa: E402
 from superlimpio.safety import check_deletable  # noqa: E402
 from superlimpio.util import fmt_size, text_bar  # noqa: E402
+from superlimpio.plat import windows as _windows  # noqa: E402
+
+# Estas pruebas describen escenarios de Windows (nombres de proceso, rutas...). Se fija
+# su conocimiento para que den lo mismo en cualquier sistema; las de Linux lo cambian.
+plat.set_knowledge("windows")
 
 
 def _write(path, size):
@@ -131,23 +136,23 @@ class UninstallParsingTests(unittest.TestCase):
 
     def test_msi_uses_x(self):
         p = Program(name="X", uninstall_string="MsiExec.exe /I{11111111-2222-3333-4444-555555555555}")
-        plan = build_uninstall_plan(p)
+        plan = build_uninstall_plan(p, _windows.uninstall_command)
         self.assertIn("/X{11111111", plan.params)
         p2 = Program(name="Y", msi_code="{11111111-2222-3333-4444-555555555555}")
-        self.assertEqual(build_uninstall_plan(p2).params, "/x {11111111-2222-3333-4444-555555555555}")
+        self.assertEqual(build_uninstall_plan(p2, _windows.uninstall_command).params, "/x {11111111-2222-3333-4444-555555555555}")
 
 
 class ElevationTests(unittest.TestCase):
     def test_launcher_needs_no_script(self):
         from unittest import mock
-        from superlimpio import winapi
+        from superlimpio.plat import windows as winapi
         with mock.patch.object(sys, "executable", r"E:\SuperLimpio\SuperLimpio.exe"):
             self.assertEqual(winapi.admin_command(r"E:\SuperLimpio\app\main.py"),
                              (r"E:\SuperLimpio\SuperLimpio.exe", ""))
 
     def test_python_gets_the_script(self):
         from unittest import mock
-        from superlimpio import winapi
+        from superlimpio.plat import windows as winapi
         with mock.patch.object(sys, "executable", r"E:\nada\pythonw.exe"):
             self.assertEqual(winapi.admin_command(r"E:\app\main.py"),
                              (r"E:\nada\pythonw.exe", r'"E:\app\main.py"'))
@@ -264,7 +269,7 @@ class ResilienceTests(unittest.TestCase):
 
 
 def _proc(pid, name, path="", ppid=1, private=100 * 1024 ** 2, ct=None, accessible=True, **kw):
-    from superlimpio.winapi import RawProcess
+    from superlimpio.plat import RawProcess
     return RawProcess(pid=pid, ppid=ppid, name=name, threads=1, path=path, working_set=private,
                       private=private, accessible=accessible, create_time=ct if ct is not None else float(pid),
                       **kw)
@@ -322,7 +327,7 @@ class OptimizerTests(unittest.TestCase):
 
     def setUp(self):
         from superlimpio import optimizer
-        from superlimpio.winapi import WindowInfo
+        from superlimpio.plat import WindowInfo
         self.o = optimizer
         chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
         self.procs = [
@@ -479,7 +484,7 @@ class OptimizerTests(unittest.TestCase):
         self.assertIn("notes.exe", self.o.describe_plan(plan, self.o.Options()))
 
     def test_analysis_finds_pressure_growth_and_background_cpu(self):
-        from superlimpio.winapi import MemoryStatus
+        from superlimpio.plat import MemoryStatus
         gb, mb = 1024 ** 3, 1024 ** 2
         samples = []
         for i in range(5):
@@ -504,7 +509,7 @@ class OptimizerTests(unittest.TestCase):
         self.assertEqual(rep.findings[0].severity, 3)             # lo urgente, primero
 
     def test_calm_system_reports_no_problems(self):
-        from superlimpio.winapi import MemoryStatus
+        from superlimpio.plat import MemoryStatus
         gb = 1024 ** 3
         samples = [(float(i), [_proc(12, "calm.exe", r"C:\C\calm.exe")]) for i in range(3)]
         rep = self.o.analyze(samples, MemoryStatus(16 * gb, 10 * gb, 37, 20 * gb, 12 * gb), None, ncpu=4,
@@ -515,7 +520,7 @@ class OptimizerTests(unittest.TestCase):
         for key, entry in i18n.CATALOG.items():
             if key.startswith("opt."):
                 self.assertTrue(entry.get("en") and entry.get("es"), key)
-        for cat in list(self.o._CATALOG) + ["other"]:
+        for cat in list(plat.know.CATALOG) + ["other"]:
             self.assertIn(f"opt.cat.{cat}", i18n.CATALOG)
 
 
@@ -845,7 +850,7 @@ class CriticalityTests(unittest.TestCase):
 
     def test_analysis_explains_system_processes(self):
         from superlimpio import optimizer
-        from superlimpio.winapi import MemoryStatus
+        from superlimpio.plat import MemoryStatus
         gb = 1024 ** 3
         procs = [
             _proc(4, "System", ppid=0, private=1 * gb),

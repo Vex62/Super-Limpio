@@ -6,7 +6,7 @@ import os
 import tkinter as tk
 from tkinter import ttk
 
-from ... import criticality, i18n, winapi
+from ... import criticality, i18n, plat
 from ...processes import ProcessMonitor, group_by_program
 from ...safety import Risk, check_process_kill, log_action
 from ...util import fmt_count, fmt_size
@@ -155,7 +155,7 @@ class MemoryView(View):
 
         def work():
             procs = self.monitor.sample()
-            return procs, winapi.memory_status()
+            return procs, plat.memory_status()
 
         self.app.bg.run(work, on_done=self._render, on_error=self._failed)
 
@@ -186,7 +186,7 @@ class MemoryView(View):
     def open_location(self) -> None:
         sel = self.table.selected()
         if sel and sel[0].path:
-            winapi.open_in_explorer(sel[0].path)
+            plat.open_in_explorer(sel[0].path)
 
     def kill(self) -> None:
         sel = self.table.selected()
@@ -239,7 +239,7 @@ class MemoryView(View):
             return
         fails = []
         for pid, name in targets:
-            ok, m = winapi.terminate_process(pid)
+            ok, m = plat.terminate_process(pid)
             log_action("finalizar_proceso", f"{name} ({pid})", m, ok=ok)
             if not ok:
                 fails.append(f"{name} ({pid}): {m}")

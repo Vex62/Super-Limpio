@@ -33,7 +33,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
 from . import aes, i18n
-from .winapi import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
+from .plat import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
 
 MB = 1024 ** 2
 CHUNK = MB

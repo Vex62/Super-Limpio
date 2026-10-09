@@ -23,7 +23,7 @@ from typing import Callable
 
 from . import i18n
 from .util import IS_WINDOWS
-from .winapi import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
+from .plat import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
 
 # Marcador interno para los archivos sin extensión (se traduce al mostrarlo)
 NO_EXT = "\0no-ext"

@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 
-from ... import cleaner, i18n, winapi
+from ... import cleaner, i18n, plat
 from ...safety import Risk
 from ...util import fmt_count, fmt_size
 from .. import dialogs, theme
@@ -223,4 +223,4 @@ class CleanerView(View):
         self.hero_txt.configure(text=i18n.t("cleaner.done"))
         self.an_btn.state(["!disabled"])
         self.status(i18n.t("cleaner.done_status", freed=fmt_size(freed),
-                           bin=fmt_size(winapi.recycle_bin_info()[0])))
+                           bin=fmt_size(plat.recycle_bin_info()[0])))

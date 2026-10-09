@@ -1,7 +1,7 @@
 """Limpieza al estilo CCleaner: categorías de archivos temporales y cachés.
 
-Cada categoría es una LISTA BLANCA cerrada de ubicaciones conocidas. La app
-nunca borra fuera de ellas. Primero se analiza (sin tocar nada) y solo tras
+Cada categoría es una LISTA BLANCA cerrada de ubicaciones conocidas (las de cada
+sistema operativo están en la capa de plataforma). La app nunca borra fuera de ellas. Primero se analiza (sin tocar nada) y solo tras
 la confirmación del usuario se borra. Los archivos en uso se omiten.
 """
 
@@ -14,11 +14,11 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from . import i18n, winapi
+from . import i18n, plat
 from .safety import Risk, log_action
 from .scanner import _is_link_or_junction
+from .plat import CLOUD_ONLY_MASK
 from .util import IS_WINDOWS, expand
-from .winapi import CLOUD_ONLY_MASK
 
 
 @dataclass
@@ -37,78 +37,15 @@ class Category:
     close_apps: str = ""                              # app que conviene cerrar antes
 
 
-def _browser_profiles(base: str) -> list[str]:
-    """Rutas de caché de navegadores Chromium para todos los perfiles."""
-    out = []
-    for sub in (r"Cache\Cache_Data", "Code Cache", "GPUCache", r"Service Worker\CacheStorage"):
-        out.append(os.path.join(base, "*", sub))
-    out.append(os.path.join(base, "ShaderCache"))
-    out.append(os.path.join(base, "GrShaderCache"))
-    return out
-
-
-def _cat(cat_id: str, group: str, **kw) -> Category:
-    """Crea una categoría cuyo nombre y descripción se leen del catálogo i18n."""
-    return Category(cat_id, group, i18n.t(f"clean.{cat_id}.name"), i18n.t(f"clean.{cat_id}.desc"), **kw)
-
-
 def default_categories() -> list[Category]:
-    L = r"%LOCALAPPDATA%"
-    A = r"%APPDATA%"
-    U = r"%USERPROFILE%"
-    W = r"%WINDIR%"
-    P = r"%PROGRAMDATA%"
-    cats = [
-        # ----------------------------------------------------------- Windows
-        _cat("temp_user", "Windows", dirs=[r"%TEMP%"], min_age_hours=24, risk=Risk.BAJO),
-        _cat("temp_win", "Windows", dirs=[rf"{W}\Temp"], min_age_hours=24, risk=Risk.MEDIO, admin=True),
-        _cat("thumbs", "Windows",
-             files=[rf"{L}\Microsoft\Windows\Explorer\thumbcache_*.db",
-                    rf"{L}\Microsoft\Windows\Explorer\iconcache_*.db"], risk=Risk.BAJO),
-        _cat("wer", "Windows",
-             dirs=[rf"{L}\Microsoft\Windows\WER", rf"{P}\Microsoft\Windows\WER\ReportArchive",
-                   rf"{P}\Microsoft\Windows\WER\ReportQueue", rf"{P}\Microsoft\Windows\WER\Temp"],
-             risk=Risk.BAJO),
-        _cat("dumps", "Windows",
-             dirs=[rf"{L}\CrashDumps"], files=[rf"{W}\Minidump\*.dmp", rf"{W}\MEMORY.DMP"],
-             risk=Risk.BAJO),
-        _cat("wu", "Windows",
-             dirs=[rf"{W}\SoftwareDistribution\Download"], risk=Risk.MEDIO, admin=True, default_on=False),
-        _cat("do", "Windows",
-             dirs=[rf"{W}\ServiceProfiles\NetworkService\AppData\Local\Microsoft\Windows\DeliveryOptimization\Cache"],
-             risk=Risk.MEDIO, admin=True, default_on=False),
-        _cat("recycle", "Windows", special="recycle_bin", risk=Risk.ALTO, default_on=False),
-        # ------------------------------------------------------- Navegadores
-        _cat("edge", "Navegadores", dirs=_browser_profiles(rf"{L}\Microsoft\Edge\User Data"),
-             close_apps="msedge.exe"),
-        _cat("chrome", "Navegadores", dirs=_browser_profiles(rf"{L}\Google\Chrome\User Data"),
-             close_apps="chrome.exe"),
-        _cat("brave", "Navegadores",
-             dirs=_browser_profiles(rf"{L}\BraveSoftware\Brave-Browser\User Data"), close_apps="brave.exe"),
-        _cat("firefox", "Navegadores",
-             dirs=[rf"{L}\Mozilla\Firefox\Profiles\*\cache2"], close_apps="firefox.exe"),
-        # ------------------------------------------------------- Desarrollo
-        _cat("pip", "Desarrollo", dirs=[rf"{L}\pip\Cache"], default_on=False),
-        _cat("npm", "Desarrollo",
-             dirs=[rf"{L}\npm-cache", rf"{A}\npm-cache", rf"{L}\Yarn\Cache", rf"{L}\pnpm-cache"],
-             default_on=False),
-        _cat("nuget", "Desarrollo",
-             dirs=[rf"{L}\NuGet\v3-cache", rf"{L}\NuGet\plugins-cache"], default_on=False),
-        _cat("gradle", "Desarrollo", dirs=[rf"{U}\.gradle\caches"], default_on=False),
-        _cat("cargo", "Desarrollo", dirs=[rf"{U}\.cargo\registry\cache"], default_on=False),
-        _cat("vscode", "Desarrollo",
-             dirs=[rf"{A}\Code\Cache", rf"{A}\Code\CachedData", rf"{A}\Code\CachedExtensionVSIXs",
-                   rf"{A}\Code\Code Cache", rf"{A}\Code\GPUCache"], close_apps="Code.exe"),
-        # --------------------------------------------------------- Programas
-        _cat("discord", "Aplicaciones",
-             dirs=[rf"{A}\discord\Cache", rf"{A}\discord\Code Cache", rf"{A}\discord\GPUCache",
-                   rf"{A}\Slack\Cache", rf"{A}\Slack\Code Cache",
-                   rf"{L}\Packages\MSTeams_8wekyb3d8bbwe\LocalCache\Microsoft\MSTeams\EBWebView\Default\Cache"],
-             default_on=False),
-        _cat("dx", "Aplicaciones",
-             dirs=[rf"{L}\D3DSCache", rf"{L}\NVIDIA\DXCache", rf"{L}\NVIDIA\GLCache", rf"{L}\AMD\DxCache"],
-             default_on=False),
-    ]
+    """Categorías del sistema en uso, con nombre y descripción en el idioma activo."""
+    cats = []
+    for spec in plat.cleaner_categories():
+        spec = dict(spec)
+        cat_id, group = spec.pop("id"), spec.pop("group")
+        spec["risk"] = Risk(spec.get("risk", int(Risk.MEDIO)))
+        cats.append(Category(cat_id, group, i18n.t(f"clean.{cat_id}.name"), i18n.t(f"clean.{cat_id}.desc"),
+                             **spec))
     return cats
 
 
@@ -181,7 +118,7 @@ def _iter_tree(root: str, cancel: threading.Event | None):
 def analyze(cat: Category, cancel: threading.Event | None = None) -> Estimate:
     est = Estimate(cat)
     if cat.special == "recycle_bin":
-        est.size, est.count = winapi.recycle_bin_info()
+        est.size, est.count = plat.recycle_bin_info()
         est.locations = [i18n.t("clean.recycle_location")]
         return est
     cutoff = time.time() - cat.min_age_hours * 3600 if cat.min_age_hours else None
@@ -202,7 +139,7 @@ def analyze(cat: Category, cancel: threading.Event | None = None) -> Estimate:
         est.locations.append(f)
         est.size += st.st_size
         est.count += 1
-    if cat.admin and not winapi.is_admin():
+    if cat.admin and not plat.is_admin():
         est.note = i18n.t("clean.partial_admin")
     return est
 
@@ -210,8 +147,8 @@ def analyze(cat: Category, cancel: threading.Event | None = None) -> Estimate:
 def clean(cat: Category, cancel: threading.Event | None = None) -> CleanResult:
     res = CleanResult(cat)
     if cat.special == "recycle_bin":
-        size, count = winapi.recycle_bin_info()
-        ok, msg = winapi.empty_recycle_bin()
+        size, count = plat.recycle_bin_info()
+        ok, msg = plat.empty_recycle_bin()
         if ok:
             res.freed, res.deleted = size, count
         else:
@@ -276,7 +213,7 @@ def _remove_file(path: str) -> bool:
 
 
 def running_process_names() -> set[str]:
-    return {p.name.lower() for p in winapi.list_processes()}
+    return {p.name.lower() for p in plat.list_processes()}
 
 
 __all__ = ["Category", "default_categories", "analyze", "clean", "Estimate", "CleanResult",

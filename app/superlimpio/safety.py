@@ -17,8 +17,9 @@ import threading
 from dataclasses import dataclass
 from enum import IntEnum
 
-from . import i18n
-from .util import APP_ROOT, IS_WINDOWS, LOG_DIR, expand, norm_key
+from . import i18n, plat
+from .plat import know
+from .util import APP_ROOT, LOG_DIR, norm_key
 
 
 class Risk(IntEnum):
@@ -36,71 +37,27 @@ def confirm_word() -> str:
     """Palabra que el usuario debe escribir para acciones críticas (según el idioma)."""
     return i18n.t("confirm.word")
 
-# Procesos que nunca se deben finalizar (el sistema se cuelga o reinicia)
-PROTECTED_PROCESSES = {
-    "system", "system idle process", "registry", "smss.exe", "csrss.exe", "wininit.exe",
-    "winlogon.exe", "services.exe", "lsass.exe", "lsaiso.exe", "svchost.exe", "fontdrvhost.exe",
-    "dwm.exe", "memory compression", "secure system", "msmpeng.exe", "nissrv.exe",
-    "securityhealthservice.exe", "sgrmbroker.exe", "audiodg.exe", "spoolsv.exe",
-}
-
-# Procesos que se pueden cerrar pero con aviso reforzado
-SENSITIVE_PROCESSES = {"explorer.exe", "sihost.exe", "ctfmon.exe", "searchhost.exe",
-                       "startmenuexperiencehost.exe", "taskhostw.exe", "runtimebroker.exe"}
+# Qué procesos y rutas se protegen depende del sistema: las listas viven en la capa de
+# plataforma. Los procesos siguen a `plat.know` (que los tests pueden cambiar); las rutas
+# usan siempre las del sistema real.
+_KNOWLEDGE_NAMES = ("PROTECTED_PROCESSES", "SENSITIVE_PROCESSES")
 
 
-def _protected_roots() -> tuple[set[str], set[str]]:
-    """Devuelve (rutas_exactas, rutas_con_todo_su_contenido) protegidas."""
-    exact: set[str] = set()
-    tree: set[str] = set()
-    if IS_WINDOWS:
-        sysdrive = os.environ.get("SystemDrive", "C:")   # Windows no siempre está en C:
-        windir = os.environ.get("WINDIR", rf"{sysdrive}\Windows")
-        programdata = os.environ.get("ProgramData", rf"{sysdrive}\ProgramData")
-        tree.update({
-            windir,
-            os.environ.get("ProgramFiles", rf"{sysdrive}\Program Files"),
-            os.environ.get("ProgramFiles(x86)", rf"{sysdrive}\Program Files (x86)"),
-            os.environ.get("ProgramW6432", rf"{sysdrive}\Program Files"),
-            rf"{sysdrive}\Recovery",
-            rf"{sysdrive}\Boot",
-            rf"{sysdrive}\$WinREAgent",
-            expand(r"%LOCALAPPDATA%\Microsoft\WindowsApps"),
-            expand(r"%LOCALAPPDATA%\Packages"),
-            rf"{programdata}\Microsoft",
-        })
-        exact.update({
-            programdata,
-            os.environ.get("USERPROFILE", ""),
-            os.environ.get("APPDATA", ""),
-            os.environ.get("LOCALAPPDATA", ""),
-            expand(r"%USERPROFILE%\AppData"),
-            expand(r"%USERPROFILE%\AppData\LocalLow"),
-            rf"{sysdrive}\Users",
-            rf"{sysdrive}\Users\Public",
-            rf"{sysdrive}\Users\Default",
-        })
-        for name in ("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos",
-                     "OneDrive", "Favorites", "Contacts", "Saved Games", "Links", "Searches"):
-            exact.add(expand(rf"%USERPROFILE%\{name}"))
-        for f in ("DumpStack.log.tmp", "bootmgr"):
-            exact.add(rf"{sysdrive}\{f}")
-    else:
-        tree.update({"/bin", "/boot", "/etc", "/lib", "/lib64", "/proc", "/sbin", "/sys", "/usr", "/dev"})
-        exact.update({"/home", os.path.expanduser("~")})
-    tree.add(str(APP_ROOT))  # la propia aplicación
-    return ({norm_key(p) for p in exact if p}, {norm_key(p) for p in tree if p})
+def __getattr__(name: str):
+    if name in _KNOWLEDGE_NAMES:
+        return getattr(know, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-_EXACT, _TREE = _protected_roots()
+def _protected_roots() -> tuple[set[str], set[str], set[str]]:
+    """(rutas exactas, rutas con todo su contenido, carpetas de programas) protegidas."""
+    exact, tree, programs = plat.native_know.protected_roots()
+    tree = set(tree) | {str(APP_ROOT)}   # la propia aplicación
+    return ({norm_key(p) for p in exact if p}, {norm_key(p) for p in tree if p},
+            {norm_key(p) for p in programs if p})
 
-_PER_DRIVE_SYSTEM_DIRS = {"system volume information", "$recycle.bin"}
 
-_SYSTEM_FILE_HINTS = {
-    "pagefile.sys": "safety.file.pagefile",
-    "hiberfil.sys": "safety.file.hiberfil",
-    "swapfile.sys": "safety.file.swapfile",
-}
+_EXACT, _TREE, _PROGRAMS = _protected_roots()
 
 
 @dataclass
@@ -119,16 +76,17 @@ def check_deletable(path: str) -> DeleteCheck:
     if rest.strip("\\/") == "":
         return DeleteCheck(False, i18n.t("safety.drive_root"))
     # Carpetas del sistema que existen en la raíz de TODAS las unidades
-    if rest.strip("\\/").split(os.sep)[0].lower() in _PER_DRIVE_SYSTEM_DIRS:
+    if rest.strip("\\/").split(os.sep)[0].lower() in plat.native_know.PER_DRIVE_SYSTEM_DIRS:
         return DeleteCheck(False, i18n.t("safety.per_drive_system"))
     base = os.path.basename(key)
-    if base in _SYSTEM_FILE_HINTS:
-        return DeleteCheck(False, i18n.t(_SYSTEM_FILE_HINTS[base]))
+    hints = plat.native_know.SYSTEM_FILE_HINTS
+    if base.lower() in hints:
+        return DeleteCheck(False, i18n.t(hints[base.lower()]))
     if key in _EXACT:
         return DeleteCheck(False, i18n.t("safety.essential"))
     for root in _TREE:
         if key == root or key.startswith(root + os.sep):
-            if "program files" in root:
+            if root in _PROGRAMS:
                 return DeleteCheck(False, i18n.t("safety.program_files"))
             if root == norm_key(str(APP_ROOT)):
                 return DeleteCheck(False, i18n.t("safety.own_app"))
@@ -142,11 +100,11 @@ def check_deletable(path: str) -> DeleteCheck:
 
 def check_process_kill(name: str, pid: int) -> tuple[bool, Risk, str]:
     n = name.lower()
-    if pid in (0, 4) or n in PROTECTED_PROCESSES:
+    if pid in know.VITAL_PIDS or n in know.PROTECTED_PROCESSES:
         return False, Risk.CRITICO, i18n.t("safety.proc.essential")
     if pid == os.getpid():
         return False, Risk.ALTO, i18n.t("safety.proc.self")
-    if n in SENSITIVE_PROCESSES:
+    if n in know.SENSITIVE_PROCESSES:
         return True, Risk.ALTO, i18n.t("safety.proc.sensitive")
     return True, Risk.MEDIO, i18n.t("safety.proc.normal")
 

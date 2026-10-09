@@ -7,9 +7,8 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from .. import APP_NAME, __version__, config, i18n, optimizer, winapi
+from .. import APP_NAME, __version__, config, i18n, optimizer, plat
 from ..safety import Risk, log_action
-from ..util import IS_WINDOWS
 from . import dialogs, theme, winframe
 from .widgets import ASSETS_DIR, Background, ZoomStepper, bind_wheel, make_icons
 
@@ -74,7 +73,7 @@ class App:
     def __init__(self) -> None:
         self.root = tk.Tk(className="SuperLimpio")
         self.root._superlimpio_app = self  # para que los diálogos encuentren fuentes/escala
-        self.is_admin = winapi.is_admin()
+        self.is_admin = plat.is_admin()
         self.bg = Background(self.root)
         self.current: str | None = None
 
@@ -263,7 +262,7 @@ class App:
         state = i18n.t("app.role.admin") if self.is_admin else i18n.t("app.role.user")
         tk.Label(bottom, text=f"{self.fonts.glyph('shield')}  {state}", font=self.fonts.small,
                  fg=color, bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x", pady=(int(10 * sf), 0))
-        if not self.is_admin and IS_WINDOWS:
+        if not self.is_admin and plat.capabilities()["elevate"]:
             lnk = tk.Label(bottom, text=i18n.t("app.relaunch_admin_link"), font=self.fonts.small,
                            fg=theme.AGUA, bg=theme.SIDEBAR_BG, cursor="hand2", anchor="w")
             lnk.pack(fill="x", pady=(4, 0))
@@ -447,11 +446,11 @@ class App:
         script = os.path.abspath(sys.argv[0])
         ok = dialogs.confirm(
             self.root, i18n.t("app.relaunch.title"), i18n.t("app.relaunch.body"),
-            details='"{}" {}'.format(*winapi.admin_command(script)).strip(), risk=Risk.ALTO,
+            details='"{}" {}'.format(*plat.admin_command(script)).strip(), risk=Risk.ALTO,
             ok_text=i18n.t("app.relaunch.ok"))
         if not ok or not self._confirm_exit():   # esta ventana se va a cerrar: mismas preguntas que al salir
             return
-        done, msg = winapi.relaunch_as_admin(script)
+        done, msg = plat.relaunch_as_admin(script)
         log_action("reiniciar_admin", script, msg, ok=done)
         if done:
             self.root.after(300, self._shutdown)

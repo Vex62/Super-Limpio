@@ -6,7 +6,7 @@ import os
 import shutil
 import stat
 
-from . import i18n, winapi
+from . import i18n, plat
 from .safety import check_deletable, log_action
 
 
@@ -28,7 +28,7 @@ def recycle(paths: list[str]) -> tuple[bool, str]:
         msg = "; ".join(f"{p}: {r}" for p, r in blocked)
         log_action("papelera", ", ".join(paths), "bloqueado: " + msg, ok=False)
         return False, i18n.t("fileops.blocked", msg=msg)
-    ok, msg = winapi.send_to_recycle_bin(allowed)
+    ok, msg = plat.send_to_recycle_bin(allowed)
     log_action("papelera", " | ".join(allowed), msg, ok=ok)
     return ok, msg
 
