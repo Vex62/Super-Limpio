@@ -7,7 +7,7 @@ import sys
 import tkinter as tk
 from tkinter import ttk
 
-from .. import APP_NAME, __version__, config, i18n, winapi
+from .. import APP_NAME, __version__, config, i18n, optimizer, winapi
 from ..safety import Risk, log_action
 from ..util import IS_WINDOWS
 from . import dialogs, theme, winframe
@@ -19,6 +19,7 @@ _PAGES_SPEC = [
     ("disk", "DiskView", "nav.disk"),
     ("programs", "ProgramsView", "nav.programs"),
     ("memory", "MemoryView", "nav.memory"),
+    ("optimizer", "OptimizerView", "nav.optimizer"),
     ("startup", "StartupView", "nav.startup"),
     ("cleaner", "CleanerView", "nav.cleaner"),
     ("devdeps", "DevDepsView", "nav.devdeps"),
@@ -80,6 +81,7 @@ class App:
             pass
 
         self.root.minsize(int(760), int(520))
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
         self._build_everything(first=True)
 
         log_action("inicio", sys.executable, f"admin={self.is_admin}")
@@ -228,6 +230,7 @@ class App:
         from .views.disk_view import DiskView
         from .views.log_view import LogView
         from .views.memory_view import MemoryView
+        from .views.optimizer_view import OptimizerView
         from .views.programs_view import ProgramsView
         from .views.startup_view import StartupView
         from .views.summary_view import SummaryView
@@ -235,7 +238,8 @@ class App:
 
         classes = {
             "SummaryView": SummaryView, "DiskView": DiskView, "ProgramsView": ProgramsView,
-            "MemoryView": MemoryView, "StartupView": StartupView, "CleanerView": CleanerView,
+            "MemoryView": MemoryView, "OptimizerView": OptimizerView, "StartupView": StartupView,
+            "CleanerView": CleanerView,
             "DevDepsView": DevDepsView, "ToolsView": ToolsView, "LogView": LogView,
         }
         # Cada página se construye la primera vez que se visita: la ventana abre antes.
@@ -285,6 +289,24 @@ class App:
             self.root.after(300, self.root.destroy)
         else:
             dialogs.error(self.root, i18n.t("app.relaunch.failed"), msg)
+
+    def close(self) -> None:
+        """Al cerrar con el Modo eficiente activo se pregunta si deshacerlo antes de salir."""
+        session = optimizer.SESSION
+        session.prune()
+        if session.active:
+            from tkinter import messagebox
+            answer = messagebox.askyesnocancel(
+                i18n.t("opt.exit.title"),
+                i18n.t("opt.exit.body", n=len(session.throttled) + len(session.boosted)), parent=self.root)
+            if answer is None:
+                return
+            if answer:
+                optimizer.restore()
+            else:
+                log_action("modo_eficiente_salir_sin_restaurar", "",
+                           str(len(session.throttled) + len(session.boosted)))
+        self.root.destroy()
 
     def run(self) -> None:
         self.root.mainloop()

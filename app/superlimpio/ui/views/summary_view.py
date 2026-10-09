@@ -65,6 +65,7 @@ class SummaryView(View):
         tips = [
             (i18n.t("summary.tip.disk.t"), i18n.t("summary.tip.disk.d"), "disk"),
             (i18n.t("summary.tip.programs.t"), i18n.t("summary.tip.programs.d"), "programs"),
+            (i18n.t("summary.tip.optimizer.t"), i18n.t("summary.tip.optimizer.d"), "optimizer"),
             (i18n.t("summary.tip.devdeps.t"), i18n.t("summary.tip.devdeps.d"), "devdeps"),
             (i18n.t("summary.tip.cleaner.t"), i18n.t("summary.tip.cleaner.d"), "cleaner"),
         ]

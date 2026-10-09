@@ -151,6 +151,7 @@ CATALOG: dict[str, dict[str, str]] = {
     "nav.disk": {"en": "Disk analyzer", "es": "Analizador de disco"},
     "nav.programs": {"en": "Programs", "es": "Programas"},
     "nav.memory": {"en": "Memory & processes", "es": "Memoria y procesos"},
+    "nav.optimizer": {"en": "Optimize", "es": "Optimizar"},
     "nav.startup": {"en": "Windows startup", "es": "Inicio de Windows"},
     "nav.cleaner": {"en": "Cleanup", "es": "Limpieza"},
     "nav.devdeps": {"en": "Dev libraries", "es": "Librerías de desarrollo"},
@@ -202,6 +203,9 @@ CATALOG: dict[str, dict[str, str]] = {
     "summary.tip.programs.t": {"en": "Programs", "es": "Programas"},
     "summary.tip.programs.d": {"en": "Real on-disk size of each program and official uninstall.",
                                "es": "Tamaño real en disco de cada programa y desinstalación oficial."},
+    "summary.tip.optimizer.t": {"en": "Optimize", "es": "Optimizar"},
+    "summary.tip.optimizer.d": {"en": "Find what is eating your RAM; Efficient mode for gaming.",
+                                "es": "Qué se come tu RAM y Modo eficiente para jugar."},
     "summary.tip.devdeps.t": {"en": "Dev libraries", "es": "Librerías de desarrollo"},
     "summary.tip.devdeps.d": {"en": "node_modules, .venv, target… forgotten in old projects.",
                               "es": "node_modules, .venv, target… olvidados en proyectos viejos."},
@@ -410,6 +414,452 @@ CATALOG: dict[str, dict[str, str]] = {
     "memory.kill.fail_title": {"en": "Some processes did not close",
                                "es": "Algunos procesos no se cerraron"},
     "memory.kill.done": {"en": "{n} processes ended", "es": "{n} procesos finalizados"},
+
+    # ------------------------------------------------------------- Comprimir
+    "zip.button": {"en": "Compress…", "es": "Comprimir…"},
+    "zip.title": {"en": "Compress", "es": "Comprimir"},
+    "zip.counting": {"en": "{n} items selected · counting…", "es": "{n} elementos seleccionados · contando…"},
+    "zip.selection": {"en": "{files} files in {dirs} folders · {size}",
+                      "es": "{files} archivos en {dirs} carpetas · {size}"},
+    "zip.selection_skipped": {"en": " · {n} will be skipped (links or cloud-only)",
+                              "es": " · {n} se omitirán (enlaces o solo en la nube)"},
+    "zip.dest": {"en": "Save as", "es": "Guardar como"},
+    "zip.format": {"en": "Format", "es": "Formato"},
+    "zip.fmt.7z": {"en": "7z — best compression", "es": "7z — máxima compresión"},
+    "zip.fmt.zip": {"en": "ZIP — best compatibility", "es": "ZIP — máxima compatibilidad"},
+    "zip.fmt.7z.note": {
+        "en": "LZMA2 in one solid block: all files are compressed together, which gives the best ratios. "
+              "Opens with 7-Zip, WinRAR and recent Windows 11.",
+        "es": "LZMA2 en un bloque sólido: todos los archivos se comprimen juntos, que es lo que da los "
+              "mejores índices. Se abre con 7-Zip, WinRAR y Windows 11 reciente."},
+    "zip.fmt.zip.note": {
+        "en": "Deflate, file by file: compresses less, but any system opens it without installing anything "
+              "(with a password, 7-Zip, WinRAR or WinZip is needed).",
+        "es": "Deflate, archivo a archivo: comprime menos, pero lo abre cualquier sistema sin instalar "
+              "nada (con contraseña hace falta 7-Zip, WinRAR o WinZip)."},
+    "zip.level": {"en": "Level", "es": "Nivel"},
+    "zip.level.ultra": {"en": "Ultra", "es": "Ultra"},
+    "zip.level.max": {"en": "Maximum", "es": "Máxima"},
+    "zip.level.normal": {"en": "Normal", "es": "Normal"},
+    "zip.level.fast": {"en": "Fast", "es": "Rápida"},
+    "zip.plan": {"en": "On this PC: {dict} dictionary · threads: {threads} · about {mem} of memory.",
+                 "es": "En este equipo: diccionario de {dict} · hilos: {threads} · unos {mem} de memoria."},
+    "zip.password": {"en": "Password", "es": "Contraseña"},
+    "zip.password_again": {"en": "Repeat", "es": "Repetir"},
+    "zip.show": {"en": "Show", "es": "Mostrar"},
+    "zip.pw.none": {"en": "Optional. Leave empty for no encryption.",
+                    "es": "Opcional. Déjala vacía para no cifrar."},
+    "zip.pw.mismatch": {"en": "The two passwords do not match.", "es": "Las dos contraseñas no coinciden."},
+    "zip.pw.note.7z": {
+        "en": "AES-256. File names are encrypted too. If you forget it, there is no way to recover the "
+              "contents.",
+        "es": "AES-256. También se cifran los nombres de los archivos. Si la olvidas, no hay forma de "
+              "recuperar el contenido."},
+    "zip.pw.note.zip": {
+        "en": "AES-256. File names stay visible (a limit of the ZIP format). If you forget it, there is no "
+              "way to recover the contents.",
+        "es": "AES-256. Los nombres de los archivos quedan a la vista (límite del formato ZIP). Si la "
+              "olvidas, no hay forma de recuperar el contenido."},
+    "zip.opt.verify": {"en": "Test the archive when finished", "es": "Comprobar el archivo al terminar"},
+    "zip.opt.recycle": {
+        "en": "Then offer to send the originals to the Recycle Bin (only if the test passes)",
+        "es": "Después, ofrecer enviar los originales a la Papelera (solo si la comprobación sale bien)"},
+    "zip.go": {"en": "Compress", "es": "Comprimir"},
+    "zip.close": {"en": "Close", "es": "Cerrar"},
+    "zip.read_only": {"en": "The originals are only read.", "es": "Los originales solo se leen."},
+    "zip.overwrite": {"en": "This file already exists:\n{path}\n\nReplace it?",
+                      "es": "Ya existe este archivo:\n{path}\n\n¿Reemplazarlo?"},
+    "zip.phase.start": {"en": "Preparing…", "es": "Preparando…"},
+    "zip.phase.start_detail": {"en": "Deriving the encryption key from the password.",
+                               "es": "Derivando la clave de cifrado a partir de la contraseña."},
+    "zip.phase.compress": {"en": "Compressing · {pct}% · {name}", "es": "Comprimiendo · {pct} % · {name}"},
+    "zip.phase.verify": {"en": "Testing the archive · {pct}%", "es": "Comprobando el archivo · {pct} %"},
+    "zip.progress.compress": {
+        "en": "{done} of {total} · archive so far: {out} ({ratio}%) · {speed}/s · elapsed {elapsed} · "
+              "about {eta} left",
+        "es": "{done} de {total} · archivo hasta ahora: {out} ({ratio} %) · {speed}/s · transcurrido "
+              "{elapsed} · quedan unos {eta}"},
+    "zip.progress.verify": {"en": "{done} of {total} read back · elapsed {elapsed}",
+                            "es": "{done} de {total} releídos · transcurrido {elapsed}"},
+    "zip.stopping": {"en": "Stopping…", "es": "Deteniendo…"},
+    "zip.cancelled": {"en": "Stopped. No archive was created.", "es": "Detenido. No se ha creado ningún archivo."},
+    "zip.failed": {"en": "Could not create the archive: {why}", "es": "No se pudo crear el archivo: {why}"},
+    "zip.done": {"en": "Created {name}", "es": "Creado {name}"},
+    "zip.done.sizes": {
+        "en": "{files} files · {before} → {after} ({pct}% of the original) · {time}",
+        "es": "{files} archivos · {before} → {after} ({pct} % del original) · {time}"},
+    "zip.done.saved": {"en": "It takes {size} less than the originals.",
+                       "es": "Ocupa {size} menos que los originales."},
+    "zip.done.no_gain": {
+        "en": "It does not take less: this content was already compressed (video, photos, other archives).",
+        "es": "No ocupa menos: este contenido ya estaba comprimido (vídeo, fotos, otros archivos "
+              "comprimidos)."},
+    "zip.done.verified": {"en": "✔ Tested: the archive was read back and every file matches.",
+                          "es": "✔ Comprobado: se ha releído el archivo y todos los ficheros coinciden."},
+    "zip.done.encrypted": {"en": "🔒 Encrypted with AES-256. Keep the password safe.",
+                           "es": "🔒 Cifrado con AES-256. Guarda bien la contraseña."},
+    "zip.done.skipped": {"en": "⚠ {n} items were NOT included:\n{items}",
+                         "es": "⚠ {n} elementos NO se han incluido:\n{items}"},
+    "zip.done.no_recycle": {
+        "en": "The originals stay where they are, because not everything is inside the archive.",
+        "es": "Los originales se quedan donde están, porque no todo está dentro del archivo."},
+    "zip.status": {"en": "Created {name}: {before} → {after}", "es": "Creado {name}: {before} → {after}"},
+    "zip.recycle.title": {"en": "Send the originals to the Recycle Bin",
+                          "es": "Enviar los originales a la Papelera"},
+    "zip.recycle.body": {
+        "en": "{name} was created and tested. The {n} selected items ({size}) will be sent to the Recycle "
+              "Bin; you can restore them from there until you empty it.",
+        "es": "{name} se ha creado y comprobado. Los {n} elementos seleccionados ({size}) se enviarán a la "
+              "Papelera; puedes restaurarlos desde ahí mientras no la vacíes."},
+    "zip.skip.link": {"en": "link or junction (not followed)", "es": "enlace o junction (no se siguen)"},
+    "zip.skip.cloud": {"en": "cloud-only file (not downloaded)", "es": "archivo solo en la nube (no se descarga)"},
+    "zip.skip.partial": {"en": "read error, saved incomplete ({why})",
+                         "es": "error de lectura, guardado incompleto ({why})"},
+    "zip.err.nothing": {"en": "There is nothing to compress.", "es": "No hay nada que comprimir."},
+    "zip.err.no_folder": {"en": "This is not a valid place to save: {path}",
+                          "es": "No es un sitio válido para guardar: {path}"},
+    "zip.err.dest_is_source": {
+        "en": "The archive cannot have the same name as one of the files being compressed.",
+        "es": "El archivo no puede llamarse igual que uno de los que se van a comprimir."},
+    "zip.err.ascii_password": {
+        "en": "In ZIP, use only unaccented letters, digits and symbols: each program reads other characters "
+              "differently and the archive might not open. 7z has no such limit.",
+        "es": "En ZIP usa solo letras sin tilde, números y símbolos: cada programa interpreta los demás "
+              "caracteres a su manera y el archivo podría no abrirse. En 7z no hay este límite."},
+    "zip.err.verify_header": {"en": "The test failed: the archive index does not read back correctly.",
+                              "es": "La comprobación ha fallado: el índice del archivo no se relee bien."},
+    "zip.err.verify_data": {"en": "The test failed at \"{name}\". The disk may be faulty.",
+                            "es": "La comprobación ha fallado en «{name}». Puede que el disco tenga errores."},
+    "zip.err.grew": {"en": "\"{name}\" grew past 4 GB while it was being read.",
+                     "es": "«{name}» ha crecido por encima de 4 GB mientras se leía."},
+
+    # ------------------------------------------------------------ Optimizar
+    "opt.title": {"en": "Optimize", "es": "Optimizar"},
+    "opt.subtitle": {"en": "Find out what is slowing the PC down and make room for the program or game "
+                           "you want to use.",
+                     "es": "Averigua qué frena el equipo y deja sitio al programa o juego que quieres usar."},
+    "opt.tab.analysis": {"en": "In-depth analysis", "es": "Análisis exhaustivo"},
+    "opt.tab.efficient": {"en": "Efficient mode", "es": "Modo eficiente"},
+
+    "opt.an.run": {"en": "Analyze", "es": "Analizar"},
+    "opt.an.duration": {"en": "Watch for", "es": "Observar durante"},
+    "opt.an.prompt": {"en": "Read-only: nothing is changed.", "es": "Solo lectura: no se cambia nada."},
+    "opt.an.running": {"en": "Measuring every process for {s} s… keep using the PC as usual.",
+                       "es": "Midiendo todos los procesos durante {s} s… usa el equipo con normalidad."},
+    "opt.an.cancelled": {"en": "Analysis stopped.", "es": "Análisis detenido."},
+    "opt.an.done": {"en": "Analysis finished ({s} s observed).", "es": "Análisis terminado ({s} s observados)."},
+    "opt.an.status": {"en": "{n} findings · {p} programs measured", "es": "{n} hallazgos · {p} programas medidos"},
+    "opt.an.explain": {
+        "en": "The analysis samples every process once per second to see not only how much memory each "
+              "program holds, but which ones keep growing, which use CPU without a window, and how close "
+              "the system is to running out of memory.",
+        "es": "El análisis mide todos los procesos una vez por segundo para ver no solo cuánta memoria "
+              "tiene cada programa, sino cuáles no dejan de crecer, cuáles usan CPU sin tener ventana y "
+              "cuánto le falta al sistema para quedarse sin memoria."},
+    "opt.an.head.none": {"en": "No analysis yet", "es": "Aún no hay análisis"},
+    "opt.an.head.0": {"en": "Everything looks fine", "es": "Todo en orden"},
+    "opt.an.head.1": {"en": "Fine, with a few things worth a look", "es": "Bien, con algún detalle que mirar"},
+    "opt.an.head.2": {"en": "There is room for improvement", "es": "Hay margen de mejora"},
+    "opt.an.head.3": {"en": "The PC is under memory pressure", "es": "El equipo va justo de memoria"},
+    "opt.an.level.0": {"en": "Info", "es": "Información"},
+    "opt.an.level.1": {"en": "Minor", "es": "Leve"},
+    "opt.an.level.2": {"en": "Review", "es": "A revisar"},
+    "opt.an.level.3": {"en": "Urgent", "es": "Urgente"},
+    "opt.an.col.level": {"en": "Level", "es": "Nivel"},
+    "opt.an.col.finding": {"en": "Finding", "es": "Hallazgo"},
+    "opt.an.col.detail": {"en": "Detail", "es": "Detalle"},
+    "opt.an.col.growth": {"en": "Change", "es": "Variación"},
+    "opt.an.col.cpu_avg": {"en": "CPU avg", "es": "CPU media"},
+    "opt.an.col.cpu_peak": {"en": "CPU peak", "es": "CPU pico"},
+    "opt.an.col.handles": {"en": "Handles", "es": "Identificadores"},
+    "opt.an.goto": {"en": "Take me there", "es": "Llévame ahí"},
+    "opt.an.close": {"en": "Close selected…", "es": "Cerrar seleccionados…"},
+    "opt.an.close_hint": {"en": "Select one or more programs (Ctrl or Shift + click) to close them.",
+                          "es": "Selecciona uno o varios programas (Ctrl o Mayús + clic) para cerrarlos."},
+    "opt.an.close.title": {"en": "Close programs", "es": "Cerrar programas"},
+    "opt.an.close.closing": {"en": "Closing the selected programs…",
+                             "es": "Cerrando los programas seleccionados…"},
+    "opt.an.close.done": {"en": "{n} programs closed.", "es": "{n} programas cerrados."},
+    "opt.an.close.blocked_body": {"en": "Super Limpio does not close these programs:\n\n{items}",
+                                  "es": "Super Limpio no cierra estos programas:\n\n{items}"},
+    "opt.kept.system": {"en": "part of Windows", "es": "forma parte de Windows"},
+    "opt.kept.service": {"en": "it is a Windows service", "es": "es un servicio de Windows"},
+    "opt.kept.security": {"en": "security or anti-cheat software",
+                          "es": "software de seguridad o anti-trampas"},
+    "opt.kept.self": {"en": "it is Super Limpio itself or what launched it",
+                      "es": "es el propio Super Limpio o quien lo abrió"},
+    "opt.kept.no_access": {"en": "Windows does not allow access to it (try as administrator)",
+                           "es": "Windows no permite acceder a él (prueba como administrador)"},
+    "opt.an.sum.perf": {
+        "en": "Committed {commit} of {limit} · file cache {cache} · kernel {kernel} · {procs} processes, "
+              "{threads} threads, {handles} handles",
+        "es": "Comprometida {commit} de {limit} · caché de archivos {cache} · núcleo {kernel} · {procs} "
+              "procesos, {threads} hilos, {handles} identificadores"},
+
+    "opt.find.ram_crit": {"en": "RAM is almost full ({pct})", "es": "La RAM está casi llena ({pct})"},
+    "opt.find.ram_warn": {"en": "RAM usage is high ({pct})", "es": "El uso de RAM es alto ({pct})"},
+    "opt.find.ram_ok": {"en": "RAM has headroom ({pct} in use)", "es": "La RAM tiene margen ({pct} en uso)"},
+    "opt.find.ram_detail": {"en": "{used} of {total} in use, {avail} available",
+                            "es": "{used} de {total} en uso, {avail} disponibles"},
+    "opt.find.ram_crit_advice": {
+        "en": "Windows is moving memory to the page file on disk, which makes everything slower. Close "
+              "what you are not using, or let Efficient mode propose what to stop.",
+        "es": "Windows está moviendo memoria al archivo de paginación del disco, y eso lo vuelve todo más "
+              "lento. Cierra lo que no uses o deja que el Modo eficiente proponga qué detener."},
+    "opt.find.ram_warn_advice": {
+        "en": "There is still room, but a heavy program or game may not fit comfortably. Efficient mode "
+              "can free memory before you start it.",
+        "es": "Aún hay sitio, pero un programa pesado o un juego puede no caber con holgura. El Modo "
+              "eficiente puede liberar memoria antes de abrirlo."},
+    "opt.find.commit": {"en": "Committed memory at {pct} of the limit",
+                        "es": "Memoria comprometida al {pct} del límite"},
+    "opt.find.commit_detail": {"en": "{used} of {total} (RAM + page file)",
+                               "es": "{used} de {total} (RAM + archivo de paginación)"},
+    "opt.find.commit_advice": {
+        "en": "This is what programs have reserved, used or not. At 100% programs start failing with "
+              "\"out of memory\". Close the ones with the most private memory.",
+        "es": "Es lo que los programas han reservado, lo usen o no. Al llegar al 100 % empiezan a fallar "
+              "por «memoria insuficiente». Cierra los que más memoria privada tienen."},
+    "opt.find.hog": {"en": "{name} holds {size} ({pct} of RAM)", "es": "{name} reserva {size} ({pct} de la RAM)"},
+    "opt.find.procs.one": {"en": "{n} process", "es": "{n} proceso"},
+    "opt.find.procs.other": {"en": "{n} processes", "es": "{n} procesos"},
+    "opt.find.hog_browser_advice": {
+        "en": "In a browser, each tab and extension is a process. Close tabs you do not need, review "
+              "extensions, or turn on its memory saver / sleeping tabs.",
+        "es": "En un navegador cada pestaña y cada extensión es un proceso. Cierra pestañas que no "
+              "necesites, revisa las extensiones o activa su ahorro de memoria / pestañas en suspensión."},
+    "opt.find.hog_advice": {
+        "en": "If you are not using it right now, closing it is the single most effective thing to do. "
+              "If you need it, restarting it usually returns memory it accumulated.",
+        "es": "Si no lo estás usando ahora, cerrarlo es lo más efectivo que puedes hacer. Si lo necesitas, "
+              "reiniciarlo suele devolver la memoria que ha ido acumulando."},
+    "opt.find.growth": {"en": "{name} keeps growing: +{size} in {s} s",
+                        "es": "{name} no deja de crecer: +{size} en {s} s"},
+    "opt.find.growth_detail": {"en": "Now at {size}", "es": "Ahora en {size}"},
+    "opt.find.growth_advice": {
+        "en": "Normal while it is loading something. If it keeps growing while idle, it may be a memory "
+              "leak: restart that program. Run a longer analysis to confirm.",
+        "es": "Es normal mientras carga algo. Si sigue creciendo sin que lo uses, puede ser una fuga de "
+              "memoria: reinicia ese programa. Repite el análisis con más tiempo para confirmarlo."},
+    "opt.find.bg_cpu": {"en": "{name} uses {pct} CPU in the background",
+                        "es": "{name} usa un {pct} de CPU en segundo plano"},
+    "opt.find.bg_cpu_detail": {"en": "Peak {peak}, no visible window", "es": "Pico del {peak}, sin ventana visible"},
+    "opt.find.bg_cpu_advice": {
+        "en": "It has no window, yet it is working. If it is an antivirus scan, an update or a sync it "
+              "will usually finish by itself; otherwise Efficient mode can slow it down without closing it.",
+        "es": "No tiene ventana y aun así está trabajando. Si es un análisis del antivirus, una "
+              "actualización o una sincronización suele acabar solo; si no, el Modo eficiente puede "
+              "ralentizarlo sin cerrarlo."},
+    "opt.find.handles": {"en": "{name} holds {n} handles", "es": "{name} tiene {n} identificadores abiertos"},
+    "opt.find.handles_advice": {
+        "en": "An unusually high number of open handles often means the program is leaking resources. "
+              "Restarting it fixes it.",
+        "es": "Un número de identificadores tan alto suele indicar que el programa pierde recursos. "
+              "Reiniciarlo lo soluciona."},
+    "opt.find.kernel": {"en": "The Windows kernel holds {size} of non-pageable memory",
+                        "es": "El núcleo de Windows retiene {size} de memoria no paginable"},
+    "opt.find.kernel_advice": {
+        "en": "No program can release this memory. It is usually caused by a driver (network, graphics, "
+              "antivirus). Updating drivers and restarting the PC is what helps.",
+        "es": "Ningún programa puede liberar esta memoria. Suele deberse a un controlador (red, gráficos, "
+              "antivirus). Lo que ayuda es actualizar los controladores y reiniciar el equipo."},
+    "opt.find.startup": {"en": "{n} programs start with Windows", "es": "{n} programas arrancan con Windows"},
+    "opt.find.startup_advice": {
+        "en": "Each one uses memory from the moment you sign in. Review them in \"Windows startup\".",
+        "es": "Cada uno ocupa memoria desde que inicias sesión. Revísalos en «Inicio de Windows»."},
+    "opt.find.blind": {"en": "{n} system processes could not be measured",
+                       "es": "{n} procesos del sistema no se pudieron medir"},
+    "opt.find.blind_advice": {
+        "en": "Windows only lets an administrator read them. For a complete picture, use \"Restart as "
+              "administrator\" and analyze again.",
+        "es": "Windows solo deja leerlos a un administrador. Para verlo todo, usa «Reiniciar como "
+              "administrador» y repite el análisis."},
+    "opt.find.reclaim": {"en": "Efficient mode has a proposal for {n} programs ({size} in RAM)",
+                         "es": "El Modo eficiente tiene una propuesta para {n} programas ({size} en RAM)"},
+    "opt.find.reclaim_advice": {
+        "en": "Background programs that can be slowed down or closed while you use something else. You "
+              "review the list and decide.",
+        "es": "Programas en segundo plano que se pueden ralentizar o cerrar mientras usas otra cosa. Tú "
+              "revisas la lista y decides."},
+    "opt.find.all_ok": {"en": "No problems detected", "es": "No se han detectado problemas"},
+    "opt.find.all_ok_advice": {
+        "en": "Memory and CPU look healthy. If the PC still feels slow, check free disk space in "
+              "\"Disk analyzer\".",
+        "es": "La memoria y la CPU están bien. Si aun así el equipo va lento, mira el espacio libre en "
+              "«Analizador de disco»."},
+
+    "opt.eff.target": {"en": "I want to use:", "es": "Quiero usar:"},
+    "opt.eff.no_target": {"en": "(nothing in particular: just lighten the PC)",
+                          "es": "(nada en concreto: solo aligerar el equipo)"},
+    "opt.eff.profile.game": {"en": "It is a game", "es": "Es un juego"},
+    "opt.eff.profile.program": {"en": "It is a program", "es": "Es un programa"},
+    "opt.eff.col.kind": {"en": "Kind", "es": "Tipo"},
+    "opt.eff.col.window": {"en": "On screen", "es": "En pantalla"},
+    "opt.eff.col.action": {"en": "Action", "es": "Acción"},
+    "opt.eff.col.reason": {"en": "Why", "es": "Por qué"},
+    "opt.eff.window.yes": {"en": "Window", "es": "Ventana"},
+    "opt.eff.window.no": {"en": "Background", "es": "Segundo plano"},
+    "opt.eff.set_action": {"en": "For the selection:", "es": "Para lo seleccionado:"},
+    "opt.eff.recommended": {"en": "Back to proposal", "es": "Volver a la propuesta"},
+    "opt.eff.apply": {"en": "Apply…", "es": "Aplicar…"},
+    "opt.eff.opt.trim": {"en": "Also move out of RAM what gets slowed down",
+                         "es": "Sacar además de la RAM lo que se ralentice"},
+    "opt.eff.opt.boost": {"en": "Give my program priority", "es": "Dar prioridad a mi programa"},
+    "opt.eff.opt.force": {"en": "Force-close what does not close by itself",
+                          "es": "Forzar el cierre de lo que no se cierre solo"},
+    "opt.eff.note": {
+        "en": "Double-click a row to change its action. \"Slow down\" is Windows' own efficiency mode "
+              "(low priority + EcoQoS): the program keeps running and you can undo it. \"Close\" asks "
+              "programs with a window to close, as if you clicked their X, and ends those without one. "
+              "Windows, its services, your antivirus and anti-cheat are never listed.",
+        "es": "Doble clic en una fila para cambiar su acción. «Ralentizar» es el modo de eficiencia del "
+              "propio Windows (prioridad baja + EcoQoS): el programa sigue funcionando y se puede "
+              "deshacer. «Cerrar» pide a los programas con ventana que se cierren, como si pulsaras su X, "
+              "y finaliza los que no tienen. Windows, sus servicios, tu antivirus y los anti-trampas no "
+              "aparecen nunca en la lista."},
+    "opt.eff.summary": {
+        "en": "As it stands: close {close} ({ram} in RAM) · slow down {slow}.   Never touched: {kept} "
+              "processes ({system} Windows and services, {security} security, {target} of your program, "
+              "{other} others).",
+        "es": "Tal como está: cerrar {close} ({ram} en RAM) · ralentizar {slow}.   No se tocan: {kept} "
+              "procesos ({system} de Windows y servicios, {security} de seguridad, {target} de tu "
+              "programa, {other} más)."},
+    "opt.eff.status": {"en": "{n} programs · {close} to close · {slow} to slow down",
+                       "es": "{n} programas · {close} para cerrar · {slow} para ralentizar"},
+    "opt.eff.banner": {
+        "en": "Efficient mode active: {slow} processes slowed down · {boost} prioritized · {closed} "
+              "programs closed",
+        "es": "Modo eficiente activo: {slow} procesos ralentizados · {boost} priorizados · {closed} "
+              "programas cerrados"},
+    "opt.eff.restore": {"en": "Undo…", "es": "Deshacer…"},
+    "opt.eff.reopen": {"en": "Reopen closed…", "es": "Reabrir cerrados…"},
+    "opt.eff.nothing": {"en": "Every program is set to \"Keep\": there is nothing to apply.",
+                        "es": "Todos los programas están en «Mantener»: no hay nada que aplicar."},
+    "opt.eff.applying": {"en": "Applying Efficient mode…", "es": "Aplicando el Modo eficiente…"},
+    "opt.eff.confirm.title": {"en": "Efficient mode", "es": "Modo eficiente"},
+    "opt.eff.confirm.ok": {"en": "Apply", "es": "Aplicar"},
+    "opt.eff.confirm.throttle": {
+        "en": "SLOW DOWN: these programs keep running, with low priority and Windows efficiency mode. "
+              "Nothing is lost and you can undo it with \"Undo…\".",
+        "es": "RALENTIZAR: estos programas siguen funcionando, con prioridad baja y el modo de eficiencia "
+              "de Windows. No se pierde nada y se deshace con «Deshacer…»."},
+    "opt.eff.confirm.trim": {
+        "en": "Their memory will also be moved out of RAM. It comes back by itself when they need it, a "
+              "little slower the first time.",
+        "es": "Además su memoria saldrá de la RAM. Vuelve sola cuando la necesiten, algo más despacio la "
+              "primera vez."},
+    "opt.eff.confirm.close": {
+        "en": "CLOSE: programs with a window are asked to close and may ask you to save; the ones that "
+              "do not close are left open. Background programs without a window are ended directly.",
+        "es": "CERRAR: a los programas con ventana se les pide que se cierren y pueden preguntarte si "
+              "guardas; los que no se cierren se dejan abiertos. Los de segundo plano sin ventana se "
+              "finalizan directamente."},
+    "opt.eff.confirm.close_force": {
+        "en": "CLOSE (FORCED): programs with a window are asked to close and, if they have not done so "
+              "after a few seconds, they are ended. Anything unsaved in them WILL BE LOST.",
+        "es": "CERRAR (FORZADO): a los programas con ventana se les pide que se cierren y, si a los pocos "
+              "segundos no lo han hecho, se finalizan. Lo que tengan sin guardar SE PERDERÁ."},
+    "opt.eff.confirm.boost": {
+        "en": "PRIORITIZE: {name} gets \"Above normal\" priority (never \"High\" or \"Realtime\").",
+        "es": "PRIORIZAR: {name} pasa a prioridad «Por encima de lo normal» (nunca «Alta» ni «Tiempo "
+              "real»)."},
+    "opt.eff.result": {"en": "{slow} programs slowed down · {closed} closed.",
+                       "es": "{slow} programas ralentizados · {closed} cerrados."},
+    "opt.eff.result.freed": {"en": "Available RAM went up by {size}.",
+                             "es": "La RAM disponible ha subido {size}."},
+    "opt.eff.result.boosted": {"en": "{n} processes of your program prioritized.",
+                               "es": "{n} procesos de tu programa priorizados."},
+    "opt.eff.result.pending": {
+        "en": "Still open (they may be asking whether to save, or have gone to the tray): {items}",
+        "es": "Siguen abiertos (puede que pregunten si guardar o que se hayan ido a la bandeja): {items}"},
+    "opt.eff.result.failures": {"en": "Could not be changed:\n{items}", "es": "No se pudieron cambiar:\n{items}"},
+    "opt.eff.result.undo": {
+        "en": "When you finish, come back here and press \"Undo…\". If you close Super Limpio it will "
+              "ask first.",
+        "es": "Cuando termines, vuelve aquí y pulsa «Deshacer…». Si cierras Super Limpio, te lo "
+              "preguntará antes."},
+    "opt.eff.restore.title": {"en": "Undo Efficient mode", "es": "Deshacer el Modo eficiente"},
+    "opt.eff.restore.body": {
+        "en": "These processes get back the priority they had and leave efficiency mode. Programs that "
+              "were closed are not reopened here (use \"Reopen closed…\").",
+        "es": "Estos procesos recuperan la prioridad que tenían y salen del modo de eficiencia. Los "
+              "programas que se cerraron no se reabren aquí (usa «Reabrir cerrados…»)."},
+    "opt.eff.restore.ok": {"en": "Undo", "es": "Deshacer"},
+    "opt.eff.restore.done": {"en": "{n} processes restored", "es": "{n} procesos restaurados"},
+    "opt.eff.reopen.title": {"en": "Reopen closed programs", "es": "Reabrir programas cerrados"},
+    "opt.eff.reopen.body": {
+        "en": "These programs will be started again. They open as if from the Start menu: they will not "
+              "restore what you had open in them.",
+        "es": "Se volverán a abrir estos programas. Arrancan como desde el menú Inicio: no recuperan lo "
+              "que tenías abierto en ellos."},
+    "opt.eff.reopen.ok": {"en": "Reopen", "es": "Reabrir"},
+    "opt.eff.reopen.failed": {
+        "en": "These could not be started (Microsoft Store apps must be opened from the Start menu):\n{items}",
+        "es": "Estos no se pudieron abrir (las apps de Microsoft Store hay que abrirlas desde el menú "
+              "Inicio):\n{items}"},
+    "opt.exit.title": {"en": "Efficient mode is still active", "es": "El Modo eficiente sigue activo"},
+    "opt.exit.body": {
+        "en": "{n} processes are still slowed down or prioritized.\n\nYes: undo it and exit.\nNo: exit and "
+              "leave them as they are (they return to normal when those programs restart).\nCancel: do "
+              "not exit.",
+        "es": "{n} procesos siguen ralentizados o priorizados.\n\nSí: deshacerlo y salir.\nNo: salir y "
+              "dejarlos como están (vuelven a la normalidad cuando esos programas se reinicien).\n"
+              "Cancelar: no salir."},
+
+    "opt.action.keep": {"en": "Keep", "es": "Mantener"},
+    "opt.action.throttle": {"en": "Slow down", "es": "Ralentizar"},
+    "opt.action.close": {"en": "Close", "es": "Cerrar"},
+    "opt.do.ask_close": {"en": "ASK TO CLOSE", "es": "PEDIR CIERRE"},
+    "opt.do.end": {"en": "END", "es": "FINALIZAR"},
+    "opt.do.throttle": {"en": "SLOW DOWN", "es": "RALENTIZAR"},
+    "opt.do.boost": {"en": "PRIORITIZE", "es": "PRIORIZAR"},
+    "opt.log.ended": {"en": "ended (no window)", "es": "finalizado (sin ventana)"},
+    "opt.log.closed": {"en": "closed by itself", "es": "se cerró solo"},
+    "opt.log.forced": {"en": "force-closed", "es": "cierre forzado"},
+    "opt.log.still_open": {"en": "still open", "es": "sigue abierto"},
+
+    "opt.cat.updater": {"en": "Updater", "es": "Actualizador"},
+    "opt.cat.widget": {"en": "Windows extra", "es": "Extra de Windows"},
+    "opt.cat.cloud": {"en": "Cloud sync", "es": "Sincronización en la nube"},
+    "opt.cat.browser": {"en": "Browser", "es": "Navegador"},
+    "opt.cat.comms": {"en": "Chat and calls", "es": "Chat y llamadas"},
+    "opt.cat.media": {"en": "Audio and video", "es": "Audio y vídeo"},
+    "opt.cat.launcher": {"en": "Game platform", "es": "Plataforma de juegos"},
+    "opt.cat.gpu": {"en": "Graphics card", "es": "Tarjeta gráfica"},
+    "opt.cat.peripheral": {"en": "Devices", "es": "Dispositivos"},
+    "opt.cat.network": {"en": "VPN", "es": "VPN"},
+    "opt.cat.other": {"en": "Program", "es": "Programa"},
+
+    "opt.reason.updater": {"en": "Only checks for updates; it will run again on its own later.",
+                           "es": "Solo busca actualizaciones; volverá a ejecutarse solo más adelante."},
+    "opt.reason.widget": {"en": "Widgets, Phone Link, assistants: Windows restarts them when needed.",
+                          "es": "Widgets, Enlace Móvil, asistentes: Windows los reabre cuando hacen falta."},
+    "opt.reason.cloud": {"en": "Sync will be slower meanwhile; nothing is lost.",
+                         "es": "La sincronización irá más lenta mientras tanto; no se pierde nada."},
+    "opt.reason.browser": {"en": "Usually the biggest memory user. Choose Close if you do not need it now.",
+                           "es": "Suele ser lo que más memoria usa. Elige Cerrar si ahora no lo necesitas."},
+    "opt.reason.comms": {"en": "Calls and voice chat would stutter if slowed down.",
+                         "es": "Las llamadas y el chat de voz se entrecortarían al ralentizarlo."},
+    "opt.reason.media": {"en": "Music, video or recording would stutter if slowed down.",
+                         "es": "La música, el vídeo o la grabación se entrecortarían al ralentizarlo."},
+    "opt.reason.peripheral": {"en": "Mouse, keyboard, tablet or audio settings depend on it.",
+                              "es": "De él dependen ajustes de ratón, teclado, tableta o audio."},
+    "opt.reason.gpu": {"en": "Graphics driver software and overlay.",
+                       "es": "Software del controlador gráfico y su superposición."},
+    "opt.reason.network": {"en": "Closing a VPN would expose or cut your connection.",
+                           "es": "Cerrar una VPN dejaría tu conexión expuesta o cortada."},
+    "opt.reason.launcher_game": {"en": "Your game may need it to start, save or play online.",
+                                 "es": "Tu juego puede necesitarla para arrancar, guardar o jugar en línea."},
+    "opt.reason.launcher": {"en": "You are not going to play: it can wait in the background.",
+                            "es": "No vas a jugar: puede esperar en segundo plano."},
+    "opt.reason.open_app": {"en": "You have it open. Decide yourself; it may hold unsaved work.",
+                            "es": "Lo tienes abierto. Decide tú; puede tener trabajo sin guardar."},
+    "opt.reason.small": {"en": "Uses so little that touching it is not worth it.",
+                         "es": "Consume tan poco que no merece la pena tocarlo."},
+    "opt.reason.background": {"en": "Runs without a window; slowing it down gives room to your program.",
+                              "es": "Trabaja sin ventana; ralentizarlo deja sitio a tu programa."},
+    "opt.reason.throttled": {"en": "Already slowed down in this session.",
+                             "es": "Ya está ralentizado en esta sesión."},
 
     # -------------------------------------------------------------- Inicio
     "startup.title": {"en": "Windows startup", "es": "Inicio de Windows"},
@@ -632,6 +1082,14 @@ CATALOG: dict[str, dict[str, str]] = {
     "winapi.proc_access_denied": {"en": "Access denied (error {err}). Try as administrator.",
                                   "es": "Acceso denegado (error {err}). Prueba como administrador."},
     "winapi.proc_fail": {"en": "Could not end (error {err})", "es": "No se pudo finalizar (error {err})"},
+    "winapi.proc_op_fail": {"en": "Windows refused the change (error {err})",
+                            "es": "Windows rechazó el cambio (error {err})"},
+    "winapi.proc_changed": {"en": "The process is no longer the one that was analyzed; skipped.",
+                            "es": "El proceso ya no es el que se analizó; se ha omitido."},
+    "winapi.proc_throttled": {"en": "Efficiency mode on", "es": "Modo de eficiencia activado"},
+    "winapi.proc_restored": {"en": "Priority restored", "es": "Prioridad restaurada"},
+    "winapi.proc_priority": {"en": "Priority changed", "es": "Prioridad cambiada"},
+    "winapi.proc_trimmed": {"en": "Working set trimmed", "es": "Memoria en RAM recortada"},
     "winapi.bin_emptied": {"en": "Recycle Bin emptied", "es": "Papelera vaciada"},
     "winapi.bin_fail": {"en": "Could not empty the Recycle Bin (HRESULT {hr})",
                         "es": "No se pudo vaciar la papelera (HRESULT {hr})"},

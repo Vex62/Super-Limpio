@@ -15,7 +15,7 @@ from tkinter import filedialog, ttk
 from ... import fileops, i18n, scanner, winapi
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_pct, fmt_size, text_bar
-from .. import dialogs, theme
+from .. import compress_dialog, dialogs, theme
 from ..widgets import ScrollTree, SortableTable
 from .base import View
 
@@ -130,15 +130,20 @@ class DiskView(View):
         self.sel_info = tk.Label(inner, text="", font=self.fonts.small, bg=theme.CARD, fg=theme.MUTED,
                                  anchor="w")
         self.sel_info.pack(side="left", padx=self.px(10), fill="x", expand=True)
-        self.btn_del = ttk.Button(inner, text=i18n.t("common.delete_perm"), style="Danger.TButton",
+        # Los botones van en su propia fila: así caben todos aunque la ventana sea estrecha.
+        actions = tk.Frame(det, bg=theme.CARD)
+        actions.pack(fill="x", padx=self.px(12), pady=(0, self.px(8)))
+        self.btn_del = ttk.Button(actions, text=i18n.t("common.delete_perm"), style="Danger.TButton",
                                   command=self._delete_perm)
         self.btn_del.pack(side="right")
-        self.btn_rec = ttk.Button(inner, text=i18n.t("common.recycle"), command=self._recycle)
+        self.btn_rec = ttk.Button(actions, text=i18n.t("common.recycle"), command=self._recycle)
         self.btn_rec.pack(side="right", padx=self.px(6))
-        self.btn_scan_here = ttk.Button(inner, text=i18n.t("disk.scan_here"), command=self._scan_here)
+        self.btn_scan_here = ttk.Button(actions, text=i18n.t("disk.scan_here"), command=self._scan_here)
         self.btn_scan_here.pack(side="right")
-        self.btn_open = ttk.Button(inner, text=i18n.t("common.open_explorer"), command=self._open)
+        self.btn_open = ttk.Button(actions, text=i18n.t("common.open_explorer"), command=self._open)
         self.btn_open.pack(side="right", padx=self.px(6))
+        self.btn_zip = ttk.Button(actions, text=i18n.t("zip.button"), command=self._compress)
+        self.btn_zip.pack(side="right")
         self._set_actions(False)
 
         split.add(self.nb, weight=1)
@@ -148,6 +153,7 @@ class DiskView(View):
         self.menu.add_command(label=i18n.t("common.open_explorer"), command=self._open)
         self.menu.add_command(label=i18n.t("common.copy_path"), command=self._copy_path)
         self.menu.add_command(label=i18n.t("disk.scan_this_folder"), command=self._scan_here)
+        self.menu.add_command(label=i18n.t("zip.button"), command=self._compress)
         self.menu.add_separator()
         self.menu.add_command(label=i18n.t("common.recycle"), command=self._recycle)
         self.menu.add_command(label=i18n.t("common.delete_perm"), command=self._delete_perm)
@@ -376,7 +382,7 @@ class DiskView(View):
 
     def _set_actions(self, on: bool, single_dir: bool = False) -> None:
         enabled = on and not self._deleting
-        for b in (self.btn_del, self.btn_rec, self.btn_open):
+        for b in (self.btn_del, self.btn_rec, self.btn_open, self.btn_zip):
             b.state(["!disabled"] if enabled else ["disabled"])
         self.btn_scan_here.state(["!disabled"] if (single_dir and not self._deleting) else ["disabled"])
 
@@ -407,6 +413,31 @@ class DiskView(View):
         sel = self._selected()
         if sel and sel[0]["is_dir"]:
             self.start_scan(sel[0]["path"])
+
+    def _compress(self) -> None:
+        """Abre la ventana «Comprimir» con lo seleccionado. Los originales solo se leen; si
+        el usuario pidió enviarlos después a la Papelera, se le vuelve a preguntar aquí."""
+        if self._deleting:
+            return
+        sel = self._selected()
+        if not sel:
+            return
+        dlg = compress_dialog.ask(self, [s["path"] for s in sel])
+        res = dlg.result
+        if res is None:
+            return
+        self.status(i18n.t("zip.status", name=os.path.basename(res.dest), before=fmt_size(res.in_bytes),
+                           after=fmt_size(res.out_bytes)))
+        if not (dlg.want_recycle and res.verified and not res.skipped) or self._check_blocked(sel):
+            return
+        total = sum(s["size"] for s in sel)
+        if not dialogs.confirm(
+                self, i18n.t("zip.recycle.title"),
+                i18n.t("zip.recycle.body", n=len(sel), size=fmt_size(total), name=os.path.basename(res.dest)),
+                dialogs.summarize_paths([s["path"] for s in sel], [s["size"] for s in sel]),
+                risk=Risk.MEDIO, ok_text=i18n.t("common.recycle").rstrip("…")):
+            return
+        self._do_delete(sel, fileops.recycle)
 
     def _check_blocked(self, sel: list[dict]) -> bool:
         _ok, blocked = fileops.validate([s["path"] for s in sel])

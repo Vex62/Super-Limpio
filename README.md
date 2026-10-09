@@ -105,9 +105,10 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 | Sección | Qué muestra | Qué puede hacer |
 |---|---|---|
 | **Resumen** | Ocupación de cada unidad, RAM, papelera y los 5 programas que más memoria usan | Atajos al resto |
-| **Analizador de disco** | Árbol tipo Explorador con el **peso total de cada carpeta**, barra de uso y %; pestañas de *archivos más grandes* y *por tipo*. Filas coloreadas a partir de 100 MB / 1 GB / 10 GB y columna «Qué es» que explica carpetas típicas (WinSxS, node_modules, hiberfil.sys…) | Abrir en el Explorador, analizar una subcarpeta, enviar a la Papelera, borrar definitivamente |
+| **Analizador de disco** | Árbol tipo Explorador con el **peso total de cada carpeta**, barra de uso y %; pestañas de *archivos más grandes* y *por tipo*. Filas coloreadas a partir de 100 MB / 1 GB / 10 GB y columna «Qué es» que explica carpetas típicas (WinSxS, node_modules, hiberfil.sys…) | Abrir en el Explorador, analizar una subcarpeta, **comprimir** lo seleccionado (7z o ZIP, con contraseña opcional), enviar a la Papelera, borrar definitivamente |
 | **Programas** | Programas instalados con tamaño **declarado** y **real** medido en disco | Desinstalar con el desinstalador **oficial** del programa |
 | **Memoria y procesos** | Memoria privada, RAM física y CPU, agrupado por programa (p. ej. todos los `chrome.exe` juntos) | Finalizar procesos (los esenciales de Windows están bloqueados) |
+| **Optimizar** | *Análisis exhaustivo*: observa todos los procesos durante 10–60 s y señala qué programas acaparan RAM, cuáles no dejan de crecer (posible fuga), cuáles usan CPU sin tener ventana y cuánto falta para agotar la memoria. *Modo eficiente*: eliges el programa o juego que vas a usar y propone qué hacer con cada uno de los demás | Ralentizar (modo de eficiencia de Windows, reversible), cerrar, dar prioridad a tu programa; **Deshacer** y **Reabrir cerrados** al terminar |
 | **Inicio de Windows** | Programas que arrancan solos, su estado y si apuntan a archivos ya borrados | Abre el Administrador de tareas para desactivarlos (vía oficial y reversible) |
 | **Limpieza** | Temporales, informes de error, cachés de navegadores, de desarrollo (pip, npm, Gradle, Cargo, NuGet), de shaders, Windows Update, papelera… | Analiza primero sin tocar nada; luego limpia lo marcado |
 | **Librerías de desarrollo** | `node_modules`, `.venv`, `__pycache__`, `target`, `bin/obj` de .NET, `.next`, `.gradle`… dentro de tus proyectos | Marcar (incluso «más de 6 meses sin tocar») y enviar a la Papelera o borrar |
@@ -121,6 +122,8 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 - **La Papelera es la opción por defecto**; el borrado definitivo es una acción aparte.
 - **Rutas protegidas**: la app se niega a borrar la carpeta de Windows, *Archivos de programa*, `ProgramData\Microsoft`, la raíz de las unidades, `$Recycle.Bin` y `System Volume Information` de cualquier unidad, tu carpeta de usuario y sus carpetas principales (Escritorio, Documentos…), `pagefile.sys`/`hiberfil.sys` y la propia carpeta de la app. Para quitar programas usa siempre *Desinstalar*.
 - **Procesos protegidos**: `csrss`, `lsass`, `winlogon`, `services`, `svchost`, `dwm`, antivirus de Defender… no se pueden finalizar.
+- **El Modo eficiente propone, no decide.** Se basa en lo que hacen el modo de eficiencia de Windows 11, Process Lasso, Microsoft PC Manager o Razer Cortex, pero sin automatismos: enseña la lista exacta (qué se ralentiza, a qué se le pide que se cierre, qué se finaliza) y espera tu confirmación. La acción por defecto es **ralentizar**, que no cierra nada y se deshace con un botón. A los programas con ventana se les *pide* que se cierren, como si pulsaras su X, así que pueden preguntarte si guardas; forzar el cierre es una casilla aparte y sube el riesgo a *Alto*. Nunca aparecen en la lista Windows y sus servicios, el antivirus, los anti-trampas, la propia app ni nada relacionado con el programa que has elegido (su carpeta, sus procesos hijos y quien lo lanzó). Tampoco se detienen servicios ni se asigna prioridad «Alta» o «Tiempo real». Antes de actuar se comprueba que cada proceso sigue siendo el mismo que se analizó (Windows reutiliza los PID). Los cambios duran lo que la sesión: si cierras la app con el modo activo, pregunta si deshacerlo.
+- **Comprimir no toca los originales.** El compresor es propio (biblioteca estándar de Python, sin programas externos) y genera archivos estándar que abren 7-Zip y WinRAR: **7z** con LZMA2 en bloque sólido (los mejores índices; varios hilos si la memoria del equipo lo permite) o **ZIP** con Deflate (lo abre cualquier sistema). La contraseña es opcional y cifra con **AES-256** usando la criptografía del propio Windows; en 7z se cifran también los nombres de los archivos. La contraseña no se guarda ni se registra, y si se olvida no hay forma de recuperar el contenido. En ZIP solo se admiten contraseñas ASCII, porque cada programa interpreta de forma distinta las tildes y la «ñ». Se escribe en un archivo `.part` que solo recibe su nombre al terminar bien: si se detiene o falla, no queda nada a medias. Al acabar se **relee y comprueba** el archivo entero. No se siguen enlaces ni se descargan archivos «solo en la nube»: se omiten y se avisa. Enviar los originales a la Papelera es una casilla aparte, exige que la comprobación haya salido bien y que no se haya omitido nada, y pide su propia confirmación.
 - **La limpieza solo actúa sobre una lista cerrada de ubicaciones conocidas**, respeta los archivos en uso y en `%TEMP%` conserva lo modificado en las últimas 24 h.
 - **No sigue enlaces simbólicos ni *junctions*** al analizar o borrar (evita contar doble o salirse de la carpeta). Los archivos de OneDrive «solo en la nube» se cuentan aparte porque no ocupan disco.
 - **Administrador solo cuando hace falta**: «Reiniciar como administrador» pide confirmación y además Windows muestra su aviso UAC. Las herramientas que necesitan elevación (DISM, powercfg) se lanzan cada una con su propio aviso UAC y en una consola visible.
@@ -134,7 +137,7 @@ Los falsos positivos suelen venir de ejecutables empaquetados (PyInstaller, etc.
 - Sin ofuscación, sin Base64, sin PowerShell codificado, sin `-ExecutionPolicy Bypass`, sin ventanas ocultas.
 - Sin persistencia (no crea tareas programadas, servicios ni entradas de inicio) y sin escribir en el registro.
 - Sin red en tiempo de ejecución. Las únicas descargas están en `preparar_entorno.bat`, se piden con permiso, vienen de python.org / Microsoft y se **verifica su firma digital** antes de usarlas. No se ejecuta ningún instalador: los paquetes solo se extraen.
-- Para medir procesos pide a Windows **el permiso mínimo** (`PROCESS_QUERY_LIMITED_INFORMATION`). Nunca solicita acceso a la memoria de otros procesos, que es justo lo que los antivirus vigilan (por ejemplo sobre `lsass.exe`).
+- Para medir procesos pide a Windows **el permiso mínimo** (`PROCESS_QUERY_LIMITED_INFORMATION`). El Modo eficiente pide además, solo sobre los procesos que has confirmado, los permisos para cambiar su prioridad, recortar su RAM o finalizarlos. Nunca solicita acceso a la memoria de otros procesos, que es justo lo que los antivirus vigilan (por ejemplo sobre `lsass.exe`).
 - El zip solo lleva texto, los binarios oficiales de Python sin tocar y, en el portable, el lanzador y los `.pyc` (el mismo código de `app` y de la biblioteca de Python ya compilado por el propio Python).
 
 Comprobado con Microsoft Defender (protección en tiempo real activa): ni `SuperLimpio.exe`, ni el zip portable, ni la carpeta descomprimida dan ninguna detección.
@@ -166,12 +169,15 @@ SuperLimpio/
 │     ├─ scanner.py      peso recursivo de carpetas (lectura en paralelo)
 │     ├─ programs.py     programas instalados y desinstalación
 │     ├─ processes.py    memoria/CPU por proceso
+│     ├─ optimizer.py    análisis exhaustivo y Modo eficiente (catálogo, propuesta, deshacer)
 │     ├─ startup.py      programas de inicio (solo lectura)
 │     ├─ cleaner.py      categorías de limpieza (lista blanca)
 │     ├─ devdeps.py      librerías de desarrollo regenerables
 │     ├─ systools.py     comandos del sistema con confirmación
 │     ├─ safety.py       rutas/procesos protegidos, riesgos, registro
 │     ├─ fileops.py      Papelera y borrado con comprobaciones
+│     ├─ archiver.py     compresor 7z / ZIP (LZMA2 sólido, Deflate, AES-256, verificación)
+│     ├─ aes.py          AES-256 con la criptografía de Windows (CNG)
 │     ├─ winapi.py       llamadas a la API de Windows (ctypes)
 │     └─ ui/             interfaz (tkinter, sin dependencias externas)
 │        └─ assets/      icono y logo de la ventana (los genera tools/crear_exe.py)

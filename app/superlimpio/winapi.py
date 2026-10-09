@@ -1,7 +1,8 @@
 """Envoltorios mínimos de la API de Windows mediante ctypes.
 
-Solo se usan funciones documentadas y habituales (kernel32, psapi, shell32).
-No se inyecta código, no se tocan servicios ni se modifica el registro.
+Solo se usan funciones documentadas y habituales (kernel32, psapi, shell32, user32,
+dwmapi). No se inyecta código, no se tocan servicios ni se modifica el registro, y
+nunca se pide acceso a la memoria de otros procesos.
 En sistemas que no son Windows todas las funciones devuelven valores neutros,
 lo que permite ejecutar los tests de lógica en cualquier plataforma.
 """
@@ -23,6 +24,7 @@ if IS_WINDOWS:
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     psapi = ctypes.WinDLL("psapi", use_last_error=True)
     shell32 = ctypes.WinDLL("shell32", use_last_error=True)
+    user32 = ctypes.WinDLL("user32", use_last_error=True)
 
     # ---------------------------------------------------------------- memoria
     class MEMORYSTATUSEX(ctypes.Structure):
@@ -67,6 +69,31 @@ if IS_WINDOWS:
             ("PrivateUsage", ctypes.c_size_t),
         ]
 
+    class PERFORMANCE_INFORMATION(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD),
+            ("CommitTotal", ctypes.c_size_t),
+            ("CommitLimit", ctypes.c_size_t),
+            ("CommitPeak", ctypes.c_size_t),
+            ("PhysicalTotal", ctypes.c_size_t),
+            ("PhysicalAvailable", ctypes.c_size_t),
+            ("SystemCache", ctypes.c_size_t),
+            ("KernelTotal", ctypes.c_size_t),
+            ("KernelPaged", ctypes.c_size_t),
+            ("KernelNonpaged", ctypes.c_size_t),
+            ("PageSize", ctypes.c_size_t),
+            ("HandleCount", wintypes.DWORD),
+            ("ProcessCount", wintypes.DWORD),
+            ("ThreadCount", wintypes.DWORD),
+        ]
+
+    class PROCESS_POWER_THROTTLING_STATE(ctypes.Structure):
+        _fields_ = [
+            ("Version", wintypes.ULONG),
+            ("ControlMask", wintypes.ULONG),
+            ("StateMask", wintypes.ULONG),
+        ]
+
     class SHQUERYRBINFO(ctypes.Structure):
         _fields_ = [
             ("cbSize", wintypes.DWORD),
@@ -99,6 +126,40 @@ if IS_WINDOWS:
     kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
     kernel32.GlobalMemoryStatusEx.argtypes = [ctypes.POINTER(MEMORYSTATUSEX)]
     psapi.GetProcessMemoryInfo.argtypes = [wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD]
+    psapi.GetPerformanceInfo.argtypes = [ctypes.c_void_p, wintypes.DWORD]
+    psapi.EmptyWorkingSet.argtypes = [wintypes.HANDLE]
+    kernel32.GetPriorityClass.restype = wintypes.DWORD
+    kernel32.GetPriorityClass.argtypes = [wintypes.HANDLE]
+    kernel32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel32.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    try:  # Windows 8+; el modo de eficiencia (EcoQoS) existe desde Windows 10 1709
+        _SetProcessInformation = kernel32.SetProcessInformation
+        _SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    except AttributeError:
+        _SetProcessInformation = None
+
+    WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    user32.EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.GetWindow.restype = wintypes.HWND
+    user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetWindowLongW.restype = wintypes.LONG
+    user32.GetWindowLongW.argtypes = [wintypes.HWND, ctypes.c_int]
+    user32.FindWindowExW.restype = wintypes.HWND
+    user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    try:
+        _dwmapi = ctypes.WinDLL("dwmapi")
+        _dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+        _dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p,
+                                                  wintypes.DWORD]
+    except (OSError, AttributeError):
+        _dwmapi = None
     shell32.ShellExecuteW.restype = ctypes.c_void_p
     shell32.ShellExecuteW.argtypes = [
         wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR,
@@ -111,6 +172,19 @@ if IS_WINDOWS:
     TH32CS_SNAPPROCESS = 0x00000002
     PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
     PROCESS_TERMINATE = 0x0001
+    PROCESS_SET_QUOTA = 0x0100
+    PROCESS_SET_INFORMATION = 0x0200
+    _STILL_ACTIVE = 259
+    _PROCESS_POWER_THROTTLING = 4            # clase ProcessPowerThrottling
+    _POWER_THROTTLING_EXECUTION_SPEED = 0x1
+
+# Clases de prioridad (las mismas que muestra el Administrador de tareas)
+PRIORITY_IDLE = 0x40
+PRIORITY_BELOW_NORMAL = 0x4000
+PRIORITY_NORMAL = 0x20
+PRIORITY_ABOVE_NORMAL = 0x8000
+PRIORITY_HIGH = 0x80
+PRIORITY_REALTIME = 0x100
 
 FILE_ATTRIBUTE_REPARSE_POINT = 0x400
 FILE_ATTRIBUTE_OFFLINE = 0x1000
@@ -193,6 +267,9 @@ class RawProcess:
     private: int = 0
     cpu_time: float = 0.0  # segundos de CPU acumulados (kernel + usuario)
     accessible: bool = False
+    create_time: float = 0.0  # instante de creación: con el PID identifica al proceso sin ambigüedad
+    handles: int = 0
+    priority: int = 0
 
 
 def _filetime_seconds(ft) -> float:
@@ -221,6 +298,7 @@ def list_processes() -> list[RawProcess]:
     counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS_EX)
     buf = ctypes.create_unicode_buffer(32768)
     t_create, t_exit, t_kernel, t_user = (wintypes.FILETIME() for _ in range(4))
+    n_handles = wintypes.DWORD()
     for p in procs:
         if p.pid == 0:
             continue
@@ -240,6 +318,10 @@ def list_processes() -> list[RawProcess]:
             if kernel32.GetProcessTimes(h, ctypes.byref(t_create), ctypes.byref(t_exit),
                                         ctypes.byref(t_kernel), ctypes.byref(t_user)):
                 p.cpu_time = _filetime_seconds(t_kernel) + _filetime_seconds(t_user)
+                p.create_time = _filetime_seconds(t_create)
+            if kernel32.GetProcessHandleCount(h, ctypes.byref(n_handles)):
+                p.handles = n_handles.value
+            p.priority = kernel32.GetPriorityClass(h)
         finally:
             kernel32.CloseHandle(h)
     return procs
@@ -268,24 +350,234 @@ def _list_processes_posix() -> list[RawProcess]:
                 pid=int(d), ppid=int(fields[1]), name=name, threads=int(fields[17]), path=path,
                 working_set=int(statm[1]) * page,
                 private=(int(statm[1]) - int(statm[2])) * page,
-                cpu_time=(int(fields[11]) + int(fields[12])) / tick, accessible=True))
+                cpu_time=(int(fields[11]) + int(fields[12])) / tick, accessible=True,
+                create_time=int(fields[19]) / tick))
         except (OSError, ValueError, IndexError):
             continue
     return out
 
 
-def terminate_process(pid: int) -> tuple[bool, str]:
+def _open_verified(access: int, pid: int, create_time: float | None):
+    """Abre el proceso y comprueba que sigue siendo el mismo que se analizó.
+
+    Windows reutiliza los PID: entre que el usuario confirma y se actúa, el proceso pudo
+    terminar y su número pasar a otro programa. Si el instante de creación no coincide
+    no se devuelve el identificador y no se toca nada."""
+    h = kernel32.OpenProcess(access | PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not h:
+        return None, i18n.t("winapi.proc_access_denied", err=ctypes.get_last_error())
+    if create_time:
+        ft = [wintypes.FILETIME() for _ in range(4)]
+        ok = kernel32.GetProcessTimes(h, *(ctypes.byref(f) for f in ft))
+        if not ok or abs(_filetime_seconds(ft[0]) - create_time) > 0.001:
+            kernel32.CloseHandle(h)
+            return None, i18n.t("winapi.proc_changed")
+    return h, ""
+
+
+def terminate_process(pid: int, create_time: float | None = None) -> tuple[bool, str]:
     if not IS_WINDOWS:
         return False, i18n.t("common.windows_only")
-    h = kernel32.OpenProcess(PROCESS_TERMINATE, False, pid)
+    h, why = _open_verified(PROCESS_TERMINATE, pid, create_time)
     if not h:
-        return False, i18n.t("winapi.proc_access_denied", err=ctypes.get_last_error())
+        return False, why
     try:
         if kernel32.TerminateProcess(h, 1):
             return True, i18n.t("winapi.proc_ended")
         return False, i18n.t("winapi.proc_fail", err=ctypes.get_last_error())
     finally:
         kernel32.CloseHandle(h)
+
+
+def process_alive(pid: int, create_time: float | None = None) -> bool:
+    """True si ese mismo proceso (PID + instante de creación) sigue en ejecución."""
+    if not IS_WINDOWS:
+        return False
+    h, _why = _open_verified(0, pid, create_time)
+    if not h:
+        return False
+    try:
+        code = wintypes.DWORD()
+        return bool(kernel32.GetExitCodeProcess(h, ctypes.byref(code))) and code.value == _STILL_ACTIVE
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def _set_throttling(h, on: bool) -> bool:
+    """Activa EcoQoS (el «Modo de eficiencia» de Windows 11) o lo devuelve al sistema."""
+    if _SetProcessInformation is None:
+        return False
+    state = PROCESS_POWER_THROTTLING_STATE()
+    state.Version = 1
+    if on:
+        state.ControlMask = _POWER_THROTTLING_EXECUTION_SPEED
+        state.StateMask = _POWER_THROTTLING_EXECUTION_SPEED
+    # ControlMask = 0 deja que Windows vuelva a decidir por sí mismo (el estado por defecto).
+    return bool(_SetProcessInformation(h, _PROCESS_POWER_THROTTLING, ctypes.byref(state),
+                                       ctypes.sizeof(state)))
+
+
+def _safe_priority(priority: int) -> int:
+    """Super Limpio nunca asigna «Alta» ni «Tiempo real»: pueden dejar el equipo sin respuesta."""
+    if priority in (PRIORITY_IDLE, PRIORITY_BELOW_NORMAL, PRIORITY_NORMAL, PRIORITY_ABOVE_NORMAL):
+        return priority
+    return PRIORITY_NORMAL
+
+
+def set_efficiency(pid: int, create_time: float | None = None) -> tuple[bool, str, int]:
+    """Pone el proceso en modo de eficiencia: prioridad baja + EcoQoS. No lo cierra ni lo
+    suspende, y es reversible. Devuelve (ok, mensaje, prioridad_anterior)."""
+    if not IS_WINDOWS:
+        return False, i18n.t("common.windows_only"), 0
+    h, why = _open_verified(PROCESS_SET_INFORMATION, pid, create_time)
+    if not h:
+        return False, why, 0
+    try:
+        prev = kernel32.GetPriorityClass(h) or PRIORITY_NORMAL
+        if not kernel32.SetPriorityClass(h, PRIORITY_IDLE):
+            return False, i18n.t("winapi.proc_op_fail", err=ctypes.get_last_error()), prev
+        _set_throttling(h, True)   # en Windows antiguo no existe: basta con la prioridad
+        return True, i18n.t("winapi.proc_throttled"), prev
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def restore_efficiency(pid: int, priority: int, create_time: float | None = None) -> tuple[bool, str]:
+    """Deshace set_efficiency: devuelve la prioridad anterior y quita EcoQoS."""
+    if not IS_WINDOWS:
+        return False, i18n.t("common.windows_only")
+    h, why = _open_verified(PROCESS_SET_INFORMATION, pid, create_time)
+    if not h:
+        return False, why
+    try:
+        _set_throttling(h, False)
+        if kernel32.SetPriorityClass(h, _safe_priority(priority)):
+            return True, i18n.t("winapi.proc_restored")
+        return False, i18n.t("winapi.proc_op_fail", err=ctypes.get_last_error())
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def set_priority(pid: int, priority: int, create_time: float | None = None) -> tuple[bool, str, int]:
+    """Cambia la clase de prioridad. Devuelve (ok, mensaje, prioridad_anterior)."""
+    if not IS_WINDOWS:
+        return False, i18n.t("common.windows_only"), 0
+    h, why = _open_verified(PROCESS_SET_INFORMATION, pid, create_time)
+    if not h:
+        return False, why, 0
+    try:
+        prev = kernel32.GetPriorityClass(h) or PRIORITY_NORMAL
+        if kernel32.SetPriorityClass(h, _safe_priority(priority)):
+            return True, i18n.t("winapi.proc_priority"), prev
+        return False, i18n.t("winapi.proc_op_fail", err=ctypes.get_last_error()), prev
+    finally:
+        kernel32.CloseHandle(h)
+
+
+def trim_working_set(pid: int, create_time: float | None = None) -> tuple[bool, str]:
+    """Pide a Windows que saque de la RAM las páginas que el proceso no está usando.
+    No se pierde nada: vuelven solas (algo más lentas) cuando el programa las necesita."""
+    if not IS_WINDOWS:
+        return False, i18n.t("common.windows_only")
+    h, why = _open_verified(PROCESS_SET_QUOTA, pid, create_time)
+    if not h:
+        return False, why
+    try:
+        if psapi.EmptyWorkingSet(h):
+            return True, i18n.t("winapi.proc_trimmed")
+        return False, i18n.t("winapi.proc_op_fail", err=ctypes.get_last_error())
+    finally:
+        kernel32.CloseHandle(h)
+
+
+# =========================================================================
+# Ventanas: qué procesos tienen una ventana a la vista
+# =========================================================================
+
+@dataclass
+class WindowInfo:
+    hwnd: int
+    pid: int
+    title: str
+
+
+def list_windows() -> list[WindowInfo]:
+    """Ventanas principales visibles (las que saldrían en Alt+Tab), con su proceso."""
+    if not IS_WINDOWS:
+        return []
+    GW_OWNER, GWL_EXSTYLE, WS_EX_TOOLWINDOW, DWMWA_CLOAKED = 4, -20, 0x80, 14
+    out: list[WindowInfo] = []
+    buf = ctypes.create_unicode_buffer(512)
+
+    def visit(hwnd, _lparam):
+        if not user32.IsWindowVisible(hwnd) or user32.GetWindow(hwnd, GW_OWNER):
+            return True
+        if user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW:
+            return True
+        if user32.GetWindowTextLengthW(hwnd) <= 0:
+            return True
+        if _dwmapi is not None:  # ventanas «ocultas» de apps de la Tienda suspendidas
+            cloaked = wintypes.DWORD()
+            if _dwmapi.DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, ctypes.byref(cloaked),
+                                             ctypes.sizeof(cloaked)) == 0 and cloaked.value:
+                return True
+        user32.GetWindowTextW(hwnd, buf, len(buf))
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        # Las apps de la Tienda se dibujan dentro de ApplicationFrameHost: el proceso real
+        # es el dueño de la ventana interior.
+        core = user32.FindWindowExW(hwnd, None, "Windows.UI.Core.CoreWindow", None)
+        if core:
+            inner = wintypes.DWORD()
+            user32.GetWindowThreadProcessId(core, ctypes.byref(inner))
+            if inner.value:
+                pid = inner
+        if pid.value:
+            out.append(WindowInfo(int(hwnd or 0), pid.value, buf.value))
+        return True
+
+    callback = WNDENUMPROC(visit)
+    user32.EnumWindows(callback, 0)
+    return out
+
+
+def close_window(hwnd: int) -> bool:
+    """Pide a una ventana que se cierre (como pulsar su X). El programa decide: puede
+    preguntar si guardar los cambios. No fuerza nada."""
+    if not IS_WINDOWS:
+        return False
+    WM_CLOSE = 0x0010
+    return bool(user32.PostMessageW(hwnd, WM_CLOSE, 0, 0))
+
+
+# =========================================================================
+# Contadores globales del sistema
+# =========================================================================
+
+@dataclass
+class PerfInfo:
+    commit_total: int
+    commit_limit: int
+    commit_peak: int
+    system_cache: int
+    kernel_paged: int
+    kernel_nonpaged: int
+    handles: int
+    processes: int
+    threads: int
+
+
+def performance_info() -> PerfInfo | None:
+    if not IS_WINDOWS:
+        return None
+    pi = PERFORMANCE_INFORMATION()
+    pi.cb = ctypes.sizeof(PERFORMANCE_INFORMATION)
+    if not psapi.GetPerformanceInfo(ctypes.byref(pi), pi.cb):
+        return None
+    page = pi.PageSize
+    return PerfInfo(pi.CommitTotal * page, pi.CommitLimit * page, pi.CommitPeak * page,
+                    pi.SystemCache * page, pi.KernelPaged * page, pi.KernelNonpaged * page,
+                    pi.HandleCount, pi.ProcessCount, pi.ThreadCount)
 
 
 # =========================================================================

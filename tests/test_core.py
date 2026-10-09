@@ -263,5 +263,456 @@ class ResilienceTests(unittest.TestCase):
             recovery._clear_bytecode_caches = orig_clear
 
 
+def _proc(pid, name, path="", ppid=1, private=100 * 1024 ** 2, ct=None, accessible=True, **kw):
+    from superlimpio.winapi import RawProcess
+    return RawProcess(pid=pid, ppid=ppid, name=name, threads=1, path=path, working_set=private,
+                      private=private, accessible=accessible, create_time=ct if ct is not None else float(pid),
+                      **kw)
+
+
+class _FakeApi:
+    """Sustituye a winapi: anota lo que se le pide y simula qué procesos siguen vivos."""
+
+    def __init__(self, stubborn=()):
+        self.dead, self.stubborn = set(), set(stubborn)
+        self.throttled, self.restored, self.terminated, self.closed_hwnds, self.trimmed = [], [], [], [], []
+        self.priorities = {}
+
+    def memory_status(self):
+        return None
+
+    def process_alive(self, pid, create_time=None):
+        return pid not in self.dead
+
+    def set_efficiency(self, pid, create_time=None):
+        self.throttled.append(pid)
+        return True, "ok", 0x20
+
+    def restore_efficiency(self, pid, priority, create_time=None):
+        self.restored.append((pid, priority))
+        return True, "ok"
+
+    def set_priority(self, pid, priority, create_time=None):
+        prev = self.priorities.get(pid, 0x20)
+        self.priorities[pid] = priority
+        return True, "ok", prev
+
+    def trim_working_set(self, pid, create_time=None):
+        self.trimmed.append(pid)
+        return True, "ok"
+
+    def terminate_process(self, pid, create_time=None):
+        self.terminated.append(pid)
+        self.dead.add(pid)
+        return True, "ok"
+
+    def close_window(self, hwnd):
+        self.closed_hwnds.append(hwnd)
+        if hwnd not in self.stubborn:   # hwnd == pid en estos tests
+            self.dead.add(hwnd)
+        return True
+
+
+def _quiet(*_a, **_k):
+    pass
+
+
+class OptimizerTests(unittest.TestCase):
+    WIN = r"C:\Windows"
+
+    def setUp(self):
+        from superlimpio import optimizer
+        from superlimpio.winapi import WindowInfo
+        self.o = optimizer
+        chrome = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        self.procs = [
+            _proc(4, "System", accessible=False),
+            _proc(500, "services.exe", self.WIN + r"\System32\services.exe", accessible=False),
+            _proc(600, "explorer.exe", self.WIN + r"\explorer.exe"),
+            _proc(610, "svchost.exe", self.WIN + r"\System32\svchost.exe"),
+            _proc(700, "UpdSvc.exe", r"C:\Program Files\Vendor\UpdSvc.exe", ppid=500),
+            _proc(800, "MsMpEng.exe", accessible=False),
+            _proc(810, "vgc.exe", r"C:\Program Files\Riot Vanguard\vgc.exe"),
+            _proc(900, "steam.exe", r"C:\Games\Steam\steam.exe", ppid=600),
+            _proc(901, "steamwebhelper.exe", r"C:\Games\Steam\bin\steamwebhelper.exe", ppid=900),
+            _proc(910, "game.exe", r"C:\Games\Steam\steamapps\common\Game\game.exe", ppid=900),
+            _proc(1000, "chrome.exe", chrome, ppid=600),
+            _proc(1001, "chrome.exe", chrome, ppid=1000),
+            _proc(1100, "ms-teams.exe", r"C:\Program Files\WindowsApps\MSTeams\ms-teams.exe", ppid=610),
+            _proc(1101, "msedgewebview2.exe", r"C:\Program Files (x86)\Microsoft\EdgeWebView\msedgewebview2.exe",
+                  ppid=1100),
+            _proc(1200, "GoogleUpdate.exe", r"C:\Program Files (x86)\Google\Update\GoogleUpdate.exe", ppid=600),
+            _proc(1300, "notes.exe", r"C:\Apps\Notes\notes.exe", ppid=600),
+            _proc(1400, "agent.exe", r"C:\Apps\Agent\agent.exe", ppid=600),
+            _proc(1500, "tiny.exe", r"C:\Apps\Tiny\tiny.exe", ppid=600, private=5 * 1024 ** 2),
+            _proc(2000, "pythonw.exe", r"D:\SL\runtime\python\pythonw.exe", ppid=600),
+        ]
+        self.windows = [WindowInfo(1000, 1000, "Tabs"), WindowInfo(910, 910, "Game"),
+                        WindowInfo(1300, 1300, "Notes"), WindowInfo(600, 600, "Files")]
+
+    def plan(self, target="", profile="game"):
+        return self.o.build_plan(self.procs, self.windows, target, profile, self_pid=2000, windir=self.WIN)
+
+    @staticmethod
+    def by_name(plan):
+        return {c.name: c for c in plan.candidates}
+
+    def test_system_services_security_and_self_are_never_offered(self):
+        plan = self.plan()
+        names = set(self.by_name(plan))
+        for forbidden in ("System", "services.exe", "explorer.exe", "svchost.exe", "UpdSvc.exe", "MsMpEng.exe",
+                          "vgc.exe", "pythonw.exe"):
+            self.assertNotIn(forbidden, names)
+        self.assertEqual(plan.kept["service"], 1)
+        self.assertEqual(plan.kept["self"], 1)
+        self.assertGreaterEqual(plan.kept["security"], 1)
+
+    def test_process_trees_are_one_program(self):
+        c = self.by_name(self.plan())
+        self.assertEqual(c["chrome.exe"].count, 2)
+        self.assertEqual(c["steam.exe"].count, 3)                 # ayudante + juego bajo su carpeta
+        self.assertEqual(c["ms-teams.exe"].count, 2)              # la vista web incrustada va con Teams
+        self.assertNotIn("msedgewebview2.exe", c)
+        self.assertTrue(c["steam.exe"].has_window)                # la ventana del juego cuenta
+
+    def test_default_proposals(self):
+        A = self.o.Action
+        c = self.by_name(self.plan(profile="game"))
+        self.assertEqual(c["GoogleUpdate.exe"].action, A.CLOSE)
+        self.assertEqual(c["chrome.exe"].action, A.THROTTLE)
+        self.assertEqual(c["ms-teams.exe"].action, A.KEEP)       # llamadas
+        self.assertEqual(c["steam.exe"].action, A.KEEP)          # jugando: la plataforma se queda
+        self.assertEqual(c["notes.exe"].action, A.KEEP)          # abierto por el usuario
+        self.assertEqual(c["agent.exe"].action, A.THROTTLE)      # segundo plano desconocido
+        self.assertEqual(c["tiny.exe"].action, A.KEEP)           # no merece la pena
+        c = self.by_name(self.plan(profile="program"))
+        self.assertEqual(c["steam.exe"].action, A.THROTTLE)
+
+    def test_target_family_is_kept(self):
+        key = self.o.program_key(self.procs[9])                   # game.exe
+        plan = self.plan(target=key)
+        self.assertNotIn("steam.exe", self.by_name(plan))        # lanzador y ayudantes del juego
+        self.assertEqual(plan.kept["target"], 3)
+        self.assertEqual([m.pid for m in plan.target_members], [910])
+        self.assertIn("chrome.exe", self.by_name(plan))
+
+    def test_reused_parent_pid_does_not_link_processes(self):
+        self.procs.append(_proc(3000, "orphan.exe", r"C:\Program Files\Google\Chrome\Application\orphan.exe",
+                                ppid=1000, ct=5.0))               # el «padre» 1000 nació después
+        self.assertIn("orphan.exe", self.by_name(self.plan()))
+
+    def test_window_targets_skip_shell(self):
+        labels = dict(self.o.window_targets(self.procs, self.windows))
+        self.assertEqual(len(labels), 3)
+        self.assertFalse(any("explorer" in k for k in labels))
+
+    def test_apply_throttle_and_restore(self):
+        plan, api, session = self.plan(), _FakeApi(), self.o.Session()
+        for c in plan.candidates:
+            c.action = self.o.Action.THROTTLE if c.name == "chrome.exe" else self.o.Action.KEEP
+        res = self.o.apply_plan(plan, self.o.Options(trim=True), session, api, log=_quiet)
+        self.assertEqual(sorted(api.throttled), [1000, 1001])
+        self.assertEqual(sorted(api.trimmed), [1000, 1001])
+        self.assertEqual((res.throttled, res.closed, api.terminated), (1, 0, []))
+        self.assertTrue(session.active)
+        api.dead.add(1001)                                        # uno se cerró mientras tanto
+        done, failures = self.o.restore(session, api, log=_quiet)
+        self.assertEqual((done, failures, api.restored), (1, [], [(1000, 0x20)]))
+        self.assertFalse(session.active)
+
+    def _close(self, force):
+        A = self.o.Action
+        plan, api = self.plan(), _FakeApi(stubborn={1300})
+        for c in plan.candidates:
+            c.action = A.CLOSE if c.name in ("notes.exe", "agent.exe") else A.KEEP
+        now = [0.0]
+        res = self.o.apply_plan(plan, self.o.Options(force=force, grace=2.0), self.o.Session(), api, log=_quiet,
+                                sleep=lambda s: now.__setitem__(0, now[0] + s), clock=lambda: now[0])
+        return res, api
+
+    def test_close_asks_windows_and_does_not_force_by_default(self):
+        res, api = self._close(force=False)
+        self.assertEqual(api.terminated, [1400])                  # solo el que no tiene ventana
+        self.assertEqual(api.closed_hwnds, [1300])                # al de la ventana se le pide
+        self.assertEqual(res.pending, ["notes.exe"])              # no se cerró: se deja abierto
+        self.assertEqual(res.closed, 1)
+
+    def test_close_forces_only_when_told(self):
+        res, api = self._close(force=True)
+        self.assertEqual(sorted(api.terminated), [1300, 1400])
+        self.assertEqual((res.pending, res.closed), ([], 2))
+
+    def test_apply_never_touches_protected_even_if_injected(self):
+        plan, api = self.plan(), _FakeApi()
+        rogue = self.o.Candidate("x", "lsass.exe", "", members=[_proc(77, "lsass.exe")],
+                                 action=self.o.Action.CLOSE)
+        slow = self.o.Candidate("y", "explorer.exe", "", members=[self.procs[2]],
+                                action=self.o.Action.THROTTLE)
+        plan.candidates[:] = [rogue, slow]
+        self.o.apply_plan(plan, self.o.Options(force=True), self.o.Session(), api, log=_quiet)
+        self.assertEqual((api.terminated, api.throttled), ([], []))
+
+    def test_manual_selection_from_analysis_respects_protection(self):
+        rep = self.o.analyze([(0.0, self.procs), (1.0, self.procs)], ncpu=4, self_pid=2000)
+        wanted = ("chrome.exe", "explorer.exe", "vgc.exe", "pythonw.exe", "UpdSvc.exe", "agent.exe")
+        pick = [u for u in rep.programs if u.name in wanted]
+        plan, blocked = self.o.selection_plan(pick, rep.procs, self.windows, self_pid=2000, windir=self.WIN)
+        c = self.by_name(plan)
+        self.assertEqual(sorted(c), ["agent.exe", "chrome.exe"])     # lo protegido no entra
+        self.assertEqual(len(blocked), 4)
+        self.assertEqual((c["chrome.exe"].count, c["chrome.exe"].has_window), (2, True))
+        self.assertTrue(all(x.action == self.o.Action.CLOSE for x in plan.candidates))
+        api = _FakeApi()
+        res = self.o.apply_plan(plan, self.o.Options(grace=0.0), self.o.Session(), api, log=_quiet)
+        self.assertEqual(api.terminated, [1400])                     # sin ventana: se finaliza
+        self.assertEqual(api.closed_hwnds, [1000])                   # con ventana: solo se le pide
+        self.assertEqual(res.pending, ["chrome.exe"])                # y sin forzar, se respeta
+
+    def test_risk_grows_with_what_is_asked(self):
+        A, plan = self.o.Action, self.plan()
+        for c in plan.candidates:
+            c.action = A.THROTTLE
+        self.assertEqual(self.o.plan_risk(plan, self.o.Options()).name, "BAJO")
+        self.by_name(plan)["notes.exe"].action = A.CLOSE
+        self.assertEqual(self.o.plan_risk(plan, self.o.Options()).name, "MEDIO")
+        self.assertEqual(self.o.plan_risk(plan, self.o.Options(force=True)).name, "ALTO")
+        self.assertIn("notes.exe", self.o.describe_plan(plan, self.o.Options()))
+
+    def test_analysis_finds_pressure_growth_and_background_cpu(self):
+        from superlimpio.winapi import MemoryStatus
+        gb, mb = 1024 ** 3, 1024 ** 2
+        samples = []
+        for i in range(5):
+            samples.append((float(i), [
+                _proc(10, "leaky.exe", r"C:\A\leaky.exe", private=gb + i * 60 * mb),
+                _proc(11, "miner.exe", r"C:\B\miner.exe", cpu_time=i * 2.0),      # 2 s de CPU por segundo
+                _proc(12, "calm.exe", r"C:\C\calm.exe", cpu_time=0.0),
+                _proc(13, "big.exe", r"C:\D\big.exe", private=6 * gb),
+            ]))
+        mem = MemoryStatus(total=16 * gb, available=1 * gb, load_pct=94, commit_total=20 * gb,
+                           commit_available=3 * gb)
+        rep = self.o.analyze(samples, mem, None, window_pids={13}, ncpu=4, self_pid=-1)
+        titles = " | ".join(f.title for f in rep.findings)
+        self.assertEqual(rep.severity, 3)
+        self.assertIn("leaky.exe", titles)
+        self.assertIn("miner.exe", titles)
+        self.assertIn("big.exe", titles)
+        self.assertNotIn("calm.exe", titles)
+        usage = {u.name: u for u in rep.programs}
+        self.assertAlmostEqual(usage["miner.exe"].cpu_avg, 50.0)
+        self.assertEqual(usage["leaky.exe"].growth, 240 * mb)
+        self.assertEqual(rep.findings[0].severity, 3)             # lo urgente, primero
+
+    def test_calm_system_reports_no_problems(self):
+        from superlimpio.winapi import MemoryStatus
+        gb = 1024 ** 3
+        samples = [(float(i), [_proc(12, "calm.exe", r"C:\C\calm.exe")]) for i in range(3)]
+        rep = self.o.analyze(samples, MemoryStatus(16 * gb, 10 * gb, 37, 20 * gb, 12 * gb), None, ncpu=4,
+                             self_pid=-1)
+        self.assertEqual(rep.severity, 0)
+
+    def test_every_optimizer_text_is_translated(self):
+        for key, entry in i18n.CATALOG.items():
+            if key.startswith("opt."):
+                self.assertTrue(entry.get("en") and entry.get("es"), key)
+        for cat in list(self.o._CATALOG) + ["other"]:
+            self.assertIn(f"opt.cat.{cat}", i18n.CATALOG)
+
+
+def _read_bytes(path):
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+class ArchiverTests(unittest.TestCase):
+    """Compresor propio: los archivos se releen con lectores independientes."""
+
+    def setUp(self):
+        from superlimpio import aes, archiver
+        self.a, self.aes = archiver, aes
+        self.tmp = tempfile.TemporaryDirectory()
+        self.src = os.path.join(self.tmp.name, "datos ñ")
+        self.content = {
+            "uno.txt": ("texto repetido áé\n" * 4000).encode("utf-8"),
+            "vacio.bin": b"",
+            "sub/dos.log": b"0123456789abcdef" * 9000,
+            "sub/tres.bin": bytes((i * 7919) % 251 for i in range(70000)),
+        }
+        for rel, data in self.content.items():
+            full = os.path.join(self.src, *rel.split("/"))
+            os.makedirs(os.path.dirname(full), exist_ok=True)
+            with open(full, "wb") as fh:
+                fh.write(data)
+        os.makedirs(os.path.join(self.src, "sub", "hueca"))
+
+    def tearDown(self):
+        i18n.set_language("en")
+        self.tmp.cleanup()
+
+    def pack(self, fmt, password="", level="fast", **kw):
+        col = self.a.collect([self.src])
+        dest = os.path.join(self.tmp.name, f"out.{fmt}")
+        return self.a.compress(col, self.a.Options(dest, fmt, level, password, **kw))
+
+    def test_collect_counts_and_never_duplicates_nested_selection(self):
+        col = self.a.collect([self.src, os.path.join(self.src, "sub"), os.path.join(self.src, "uno.txt")])
+        self.assertEqual((col.files, col.dirs), (4, 3))
+        self.assertEqual(col.total, sum(len(v) for v in self.content.values()))
+        names = {e.arcname for e in col.entries}
+        self.assertIn("datos ñ/sub/dos.log", names)
+        self.assertEqual(len(names), len(col.entries))
+
+    def test_links_are_skipped_not_followed(self):
+        link = os.path.join(self.src, "enlace")
+        try:
+            os.symlink(self.tmp.name, link, target_is_directory=True)
+        except (OSError, NotImplementedError, AttributeError):
+            self.skipTest("sin permiso para crear enlaces simbólicos")
+        col = self.a.collect([self.src])
+        self.assertEqual([p for p, _why in col.skipped], [link])
+        self.assertEqual(col.files, 4)
+
+    def test_zip_is_readable_by_the_standard_library(self):
+        import zipfile
+        res = self.pack("zip", level="max")
+        self.assertTrue(res.verified)
+        self.assertLess(res.out_bytes, res.in_bytes)
+        with zipfile.ZipFile(res.dest) as zf:
+            self.assertIsNone(zf.testzip())
+            for rel, data in self.content.items():
+                self.assertEqual(zf.read("datos ñ/" + rel), data)
+            self.assertIn("datos ñ/sub/hueca/", zf.namelist())
+
+    def test_7z_solid_stream_decodes_to_the_original_bytes(self):
+        import lzma
+        import struct
+        res = self.pack("7z", level="normal")
+        raw = _read_bytes(res.dest)
+        self.assertEqual(raw[:6], b"7z\xbc\xaf\x27\x1c")
+        next_offset, next_size, next_crc = struct.unpack("<QQI", raw[12:32])
+        import zlib
+        self.assertEqual(zlib.crc32(raw[12:32]), struct.unpack("<I", raw[8:12])[0])
+        self.assertEqual(zlib.crc32(raw[32 + next_offset:32 + next_offset + next_size]), next_crc)
+        self.assertEqual(32 + next_offset + next_size, len(raw))
+        plain = lzma.LZMADecompressor(lzma.FORMAT_RAW, filters=[
+            {"id": lzma.FILTER_LZMA2, "dict_size": 1 << 24}]).decompress(raw[32:32 + next_offset])
+        # sólido y ordenado por tipo: .bin, .log, .txt
+        self.assertEqual(plain, self.content["sub/tres.bin"] + self.content["sub/dos.log"] + self.content["uno.txt"])
+        self.assertIn("uno.txt".encode("utf-16-le"), raw)
+
+    def test_parallel_blocks_form_one_valid_stream(self):
+        import lzma
+        big = os.path.join(self.src, "grande.dat")
+        data = b"".join(b"%07d registro de prueba\n" % i for i in range(400000))     # ~10 MiB
+        with open(big, "wb") as fh:
+            fh.write(data)
+        col = self.a.collect([big])
+        gb = 1024 ** 3
+        how = self.a.plan("7z", "fast", col.total, 16 * gb, 8 * gb, cpus=4)
+        self.assertGreater(how.threads, 1)
+        dest = os.path.join(self.tmp.name, "multi.7z")
+        import unittest.mock as mock
+        with mock.patch.object(os, "cpu_count", return_value=4):
+            res = self.a.compress(col, self.a.Options(dest, "7z", "fast", "", True, 16 * gb, 8 * gb))
+        self.assertTrue(res.verified)
+        raw = _read_bytes(dest)
+        import struct
+        next_offset = struct.unpack("<Q", raw[12:20])[0]
+        plain = lzma.LZMADecompressor(lzma.FORMAT_RAW, filters=[
+            {"id": lzma.FILTER_LZMA2, "dict_size": 1 << 20}]).decompress(raw[32:32 + next_offset])
+        self.assertEqual(plain, data)
+
+    def test_plan_respects_the_memory_of_the_machine(self):
+        gb = 1024 ** 3
+        small = self.a.plan("7z", "ultra", 50 * gb, 2 * gb, gb // 4, cpus=8)
+        large = self.a.plan("7z", "ultra", 50 * gb, 64 * gb, 48 * gb, cpus=8)
+        self.assertEqual(large.dict_size, 64 * 1024 ** 2)
+        self.assertLess(small.dict_size, large.dict_size)
+        self.assertLessEqual(small.memory, 2 * gb // 4)
+        self.assertEqual(small.threads, 1)
+        self.assertGreater(large.threads, 1)
+        self.assertEqual(self.a.plan("7z", "ultra", 100_000).dict_size, 1024 ** 2)    # no más que los datos
+
+    def test_password_rules(self):
+        self.assertTrue(self.a.password_ok("7z", "Señor ñandú ✓"))
+        self.assertFalse(self.a.password_ok("zip", "Señor"))
+        self.assertTrue(self.a.password_ok("zip", "Clave-123 !"))
+        if self.aes.AVAILABLE:
+            with self.assertRaises(self.a.ArchiveError):
+                self.pack("zip", "contraseña")
+            self.assertFalse(os.path.exists(os.path.join(self.tmp.name, "out.zip.part")))
+
+    @unittest.skipUnless(sys.platform == "win32", "el cifrado usa el AES de Windows")
+    def test_aes_matches_the_official_vector(self):
+        key = bytes(range(32))
+        out = self.aes.Aes(key).encrypt(bytes.fromhex("00112233445566778899aabbccddeeff"))
+        self.assertEqual(out.hex(), "8ea2b7ca516745bfeafc49904b496089")      # FIPS-197, C.3
+        a, b = self.aes.Ctr(key), self.aes.Ctr(key)
+        msg = bytes(range(256)) * 41
+        self.assertEqual(b.process(a.process(msg[:5]) + a.process(msg[5:])), msg)
+
+    @unittest.skipUnless(sys.platform == "win32", "el cifrado usa el AES de Windows")
+    def test_encrypted_archives_hide_content_and_verify(self):
+        for fmt, pw in (("7z", "Señor ñandú ✓"), ("zip", "Clave-123 !")):
+            res = self.pack(fmt, pw)
+            self.assertTrue(res.verified, fmt)
+            raw = _read_bytes(res.dest)
+            self.assertNotIn(b"0123456789abcdef0123456789abcdef", raw)
+            if fmt == "7z":   # cabecera cifrada: ni los nombres
+                self.assertNotIn("uno.txt".encode("utf-16-le"), raw)
+            else:             # una contraseña distinta no supera la comprobación
+                with self.assertRaises(self.a.ArchiveError):
+                    self.a._verify_zip(res.dest, "otra", self.a._Reporter(None, None, 0))
+            os.remove(res.dest)
+
+    @unittest.skipUnless(os.path.exists(r"C:\Program Files\7-Zip\7z.exe"), "7-Zip no está instalado")
+    def test_real_7zip_accepts_our_archives(self):
+        import subprocess
+        for fmt, pw in (("7z", ""), ("7z", "Señor ñandú ✓"), ("zip", ""), ("zip", "Clave-123 !")):
+            res = self.pack(fmt, pw, level="normal")
+            run = subprocess.run([r"C:\Program Files\7-Zip\7z.exe", "t", res.dest, f"-p{pw or 'x'}"],
+                                 capture_output=True)
+            self.assertEqual(run.returncode, 0, (fmt, pw, run.stdout[-300:]))
+            if pw:
+                bad = subprocess.run([r"C:\Program Files\7-Zip\7z.exe", "t", res.dest, "-pmala"],
+                                     capture_output=True)
+                self.assertNotEqual(bad.returncode, 0)
+            os.remove(res.dest)
+
+    def test_cancel_and_errors_leave_nothing_behind(self):
+        col = self.a.collect([self.src])
+        dest = os.path.join(self.tmp.name, "x.7z")
+        calls = [0]
+
+        def stop():
+            calls[0] += 1
+            return calls[0] > 2
+
+        with self.assertRaises(self.a.Cancelled):
+            self.a.compress(col, self.a.Options(dest, "7z", "fast"), should_stop=stop)
+        self.assertEqual([f for f in os.listdir(self.tmp.name) if f.startswith("x.")], [])
+        # el destino no puede ser uno de los originales
+        victim = os.path.join(self.src, "uno.txt")
+        with self.assertRaises(self.a.ArchiveError):
+            self.a.compress(col, self.a.Options(victim, "zip", "fast"))
+        self.assertEqual(_read_bytes(victim), self.content["uno.txt"])
+
+    def test_unreadable_file_is_reported_and_the_rest_is_kept(self):
+        col = self.a.collect([self.src])
+        os.remove(os.path.join(self.src, "uno.txt"))          # desaparece entre el recuento y la compresión
+        res = self.a.compress(col, self.a.Options(os.path.join(self.tmp.name, "r.zip"), "zip", "fast"))
+        self.assertEqual(len(res.skipped), 1)
+        self.assertEqual(res.files, 3)
+        self.assertTrue(res.verified)
+
+    def test_default_name_never_overwrites(self):
+        first = self.a.default_dest([self.src], "7z")
+        self.assertEqual(os.path.basename(first), "datos ñ.7z")
+        open(first, "wb").close()
+        self.assertEqual(os.path.basename(self.a.default_dest([self.src], "7z")), "datos ñ (2).7z")
+        single = os.path.join(self.src, "uno.txt")
+        self.assertEqual(os.path.basename(self.a.default_dest([single], "zip")), "uno.zip")
+
+
 if __name__ == "__main__":
     unittest.main()
