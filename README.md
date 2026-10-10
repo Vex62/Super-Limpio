@@ -8,12 +8,12 @@ Todo es **local**: la app no se conecta a Internet, no instala servicios, no se 
 
 ## Descargas
 
-Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.3.0**:
+Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.0**:
 
 | Sistema | Release | Archivo | Cómo se abre |
 |---|---|---|---|
-| Windows 10 y 11 (64 bits) | [Super Limpio 1.3.0 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.3.0-windows) | `SuperLimpio-1.3.0-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
-| Linux | [Super Limpio 1.3.0 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.3.0-linux) | `SuperLimpio-1.3.0-linux.tar.gz` (unos 200 KB, usa el Python del sistema) | [Linux](#linux) |
+| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.0 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.0-windows) | `SuperLimpio-1.4.0-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
+| Linux | [Super Limpio 1.4.0 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.0-linux) | `SuperLimpio-1.4.0-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
 
 Los dos paquetes van **firmados**: llevan un manifiesto con la huella de cada archivo y la aplicación lo comprueba al arrancar. Si alguien ha modificado algo, se niega a continuar.
 

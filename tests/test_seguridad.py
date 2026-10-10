@@ -699,16 +699,16 @@ class IntegrityTests(_Tmp):
         pkg = os.path.join(stage, "app", "superlimpio")
 
         # 1) un módulo modificado: el primero que cargaría la aplicación
-        with open(os.path.join(pkg, "__init__.py"), "a", encoding="utf-8") as fh:
-            fh.write(payload)
+        with open(os.path.join(pkg, "__init__.py"), "rb") as fh:
+            original = fh.read()   # en bytes: la copia puede tener finales de línea de Windows
+        with open(os.path.join(pkg, "__init__.py"), "ab") as fh:
+            fh.write(payload.encode("utf-8"))
         code, out = self._check(stage)
         self.assertEqual(code, 2, out)
         self.assertFalse(os.path.exists(marker))          # se rechaza sin haber ejecutado nada de la copia
 
         # 2) restaurado, y ahora un archivo AÑADIDO que el intérprete cargaría solo
-        with open(os.path.join(pkg, "__init__.py"), encoding="utf-8") as fh:
-            original = fh.read().replace(payload, "")
-        with open(os.path.join(pkg, "__init__.py"), "w", encoding="utf-8", newline="\n") as fh:
+        with open(os.path.join(pkg, "__init__.py"), "wb") as fh:
             fh.write(original)
         self.assertEqual(self._check(stage)[0], 0)
         with open(os.path.join(stage, "app", "sitecustomize.py"), "w", encoding="utf-8") as fh:

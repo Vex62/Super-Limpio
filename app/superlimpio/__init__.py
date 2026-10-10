@@ -5,5 +5,5 @@ estándar de Python), sin acceso a red y sin persistencia en el sistema. Lo que 
 del sistema operativo está aislado en el paquete `plat`.
 """
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 APP_NAME = "Super Limpio"
