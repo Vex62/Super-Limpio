@@ -1,0 +1,76 @@
+# Super Limpio no se instala con pip (es una carpeta portable que solo usa la biblioteca
+# estándar): este archivo fija la versión de Python admitida y configura las herramientas
+# de revisión. Ver requirements-dev.in para instalarlas.
+[project]
+name = "super-limpio"
+description = "Analizador y limpiador de espacio y memoria para Windows y Linux"
+requires-python = ">=3.11"
+dynamic = ["version"]
+dependencies = []   # ninguna: solo biblioteca estándar
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+extend-exclude = ["runtime", "build", "dist", "tools/VSCode"]
+
+[tool.ruff.lint]
+select = ["E", "F", "B", "S", "PTH", "BLE", "TRY", "UP"]
+ignore = [
+    # --- Excepciones justificadas (cada una, con su motivo) ---
+    # PTH: la aplicación recorre millones de archivos con os.scandir y trabaja con rutas
+    # como texto (prefijo \\?\ de rutas largas, bytes no UTF-8 en Linux con surrogateescape).
+    # pathlib normaliza y crea un objeto por ruta; aquí os/os.path es una decisión, no un descuido.
+    "PTH",
+    # S603: todo subprocess se lanza con lista de argumentos, sin shell y con el ejecutable
+    # resuelto a su ruta completa; la regla avisa de cualquier llamada, no de un defecto.
+    "S603",
+    # S110: «except <tipo concreto>: pass» se usa solo donde no hay nada que hacer (un archivo
+    # que desaparece mientras se recorre el disco), siempre con un comentario que lo dice. Los
+    # «except Exception» los vigila BLE001, que sí está activa.
+    "S110",
+    # TRY003 / TRY300 / TRY301: cuestiones de estilo (mensajes largos en excepciones, «else»
+    # tras «try»), no de seguridad ni de corrección.
+    "TRY003", "TRY300", "TRY301",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Los tests usan assert, crean archivos temporales y prueban a propósito lo que la
+# aplicación prohíbe.
+"tests/*" = ["S101", "S108", "S105", "S106", "S607", "E731", "E501", "B017"]
+# El catálogo de textos es una tabla: se lee mejor con cada idioma en su línea.
+"app/superlimpio/i18n.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "app"
+packages = ["superlimpio"]
+strict = true
+# Se comprueba dos veces, una por sistema: mypy solo analiza la rama de la plataforma que se
+# le indica, y el módulo de la otra (que usa APIs que aquí no existen) se deja fuera:
+#
+#   mypy --platform win32 --exclude "plat/linux\.py$"
+#   mypy --platform linux --exclude "plat/windows\.py$"
+
+[[tool.mypy.overrides]]
+# El módulo de cada sistema solo se analiza en la pasada de su plataforma (ver arriba); en
+# la otra no se sigue aunque algún import lo nombre.
+module = ["superlimpio.plat.windows", "superlimpio.plat.linux"]
+follow_imports = "skip"
+
+[[tool.mypy.overrides]]
+# EXCEPCIÓN JUSTIFICADA: la interfaz (tkinter) no pasa todavía mypy --strict. Los avisos que
+# quedan (66) son de los tipos de tkinter (Treeview, PanedWindow.sashpos…) y de atributos
+# que la ventana crea al vuelo; ninguna vista borra ni eleva por sí misma: llaman al núcleo
+# (fileops, cleaner, helper, safety), que sí se comprueba en modo estricto.
+module = ["superlimpio.ui.*"]
+ignore_errors = true
+
+[tool.bandit]
+exclude_dirs = ["tests", "runtime", "build", "dist"]
+# B404 / B603: uso de subprocess, siempre con lista de argumentos y sin shell (ver S603).
+# B110: «except <tipo>: pass» comentado (ver S110).
+skips = ["B404", "B603", "B110"]
+
+[tool.coverage.run]
+source = ["app/superlimpio"]
+omit = ["app/superlimpio/ui/*"]

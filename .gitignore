@@ -22,3 +22,11 @@ superlimpio.config.json
 app/superlimpio/_integrity/
 *.hex
 clave_firma*
+
+# Herramientas de revisión (entorno virtual y cachés)
+.venv/
+.venv-build/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/

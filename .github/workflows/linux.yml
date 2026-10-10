@@ -1,11 +1,16 @@
-# Verifica Super Limpio en Linux: pruebas de la lógica, llamadas reales al sistema y un
-# recorrido por la interfaz bajo un servidor gráfico virtual. Deja como artefactos las
-# capturas de pantalla del recorrido.
-name: Linux
+# Verifica Super Limpio en Windows y en Linux: pruebas de la lógica y de seguridad, llamadas
+# reales al sistema y un recorrido por la interfaz (en Linux, bajo un servidor gráfico
+# virtual, con capturas de pantalla como artefactos). Además pasa las herramientas de
+# revisión (ruff, bandit, mypy para las dos plataformas, pip-audit).
+#
+# El archivo conserva su nombre (linux.yml) para no romper los enlaces y comandos que lo
+# usan; el flujo cubre ya los dos sistemas.
+name: Pruebas
 
 on:
   push:
     branches: [main, multiplataforma]
+  pull_request:
   workflow_dispatch:
     inputs:
       etiqueta:
@@ -13,31 +18,46 @@ on:
         required: false
         default: ""
 
+# Por defecto, solo lectura: ningún trabajo necesita escribir en el repositorio.
+permissions:
+  contents: read
+
 jobs:
   pruebas:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-22.04, ubuntu-24.04]
+        os: [ubuntu-22.04, ubuntu-24.04, windows-latest]
+        python: ["3.11", "3.13"]   # la mínima y la máxima admitidas
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      # Las acciones se fijan por su huella (el comentario dice a qué versión corresponde).
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - name: Dependencias del sistema
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Dependencias del sistema (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q python3-tk xvfb wmctrl imagemagick openbox fonts-dejavu-core
+          sudo apt-get install -y -q python3-tk tk xvfb wmctrl imagemagick openbox fonts-dejavu-core
 
       - name: Versiones
+        shell: bash
         run: |
-          python3 --version
-          python3 -c "import tkinter; print('Tk', tkinter.TkVersion)"
+          python --version
+          python -I -c "import tkinter; print('Tk', tkinter.TkVersion)"
 
       - name: Pruebas
-        run: python3 -B -m unittest discover -s tests -v
+        shell: bash
+        # -X warn_default_encoding: avisa si algún open() de texto no dice su codificación
+        run: python -I -B -X warn_default_encoding -m unittest discover -s tests -v
 
-      - name: El lanzador arranca y sabe instalarse en el menú
+      - name: El lanzador arranca y sabe instalarse en el menú (Linux)
+        if: runner.os == 'Linux'
         run: |
           chmod +x superlimpio.sh
           XDG_DATA_HOME="$RUNNER_TEMP/datos" ./superlimpio.sh --instalar
@@ -49,34 +69,92 @@ jobs:
           grep -F "Exec=\"$PWD/superlimpio.sh\"" "$RUNNER_TEMP/datos/applications/superlimpio.desktop"
           XDG_DATA_HOME="$RUNNER_TEMP/datos" "$RUNNER_TEMP/bin/superlimpio" --quitar
 
-      - name: Recorrido por la interfaz
+      - name: Recorrido por la interfaz (Linux)
+        if: runner.os == 'Linux'
         run: |
           xvfb-run -a -s "-screen 0 1440x900x24" sh -c '
             openbox >/dev/null 2>&1 &
             sleep 1
-            python3 -B tests/smoke_gui.py capturas
+            python3 -I -B tests/smoke_gui.py capturas
           '
 
+      - name: Recorrido por la interfaz (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: python -I -B tests/smoke_gui.py
+
       - name: Paquete de Linux (sin firma, solo para comprobar que se construye y arranca)
+        if: runner.os == 'Linux'
         run: |
-          python3 -B tools/crear_linux.py --sin-firma
+          python3 -I -B tools/crear_linux.py --sin-firma
           mkdir prueba && tar -xzf dist/SuperLimpio-*-linux.tar.gz -C prueba
           ls -l prueba/SuperLimpio
           test -x prueba/SuperLimpio/superlimpio.sh
           cd prueba/SuperLimpio
-          timeout 20 xvfb-run -a ./superlimpio.sh || test $? -eq 124
+          XDG_STATE_HOME="$RUNNER_TEMP/estado" timeout 20 xvfb-run -a ./superlimpio.sh || test $? -eq 124
+          # Con una ventana abierta, la segunda no arranca (instancia única) y no hay errores anotados
+          cat "$RUNNER_TEMP/estado/superlimpio/logs/acciones.log"
+          if grep -q '"accion": "error_' "$RUNNER_TEMP/estado/superlimpio/logs/acciones.log"; then exit 1; fi
 
       - name: Capturas
-        if: always()
-        uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: capturas-${{ matrix.os }}
+          name: capturas-${{ matrix.os }}-py${{ matrix.python }}
           path: capturas
           if-no-files-found: ignore
 
+  # Herramientas de revisión, instaladas en un entorno virtual con cada paquete fijado por
+  # versión y por huella (requirements-dev.txt).
+  revision:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
+      - name: Entorno virtual con las herramientas (por huella)
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --require-hashes -r requirements-dev.txt
+
+      - name: Vulnerabilidades conocidas de las herramientas (pip-audit)
+        run: .venv/bin/pip-audit --require-hashes --disable-pip -r requirements-dev.txt
+
+      - name: ruff
+        run: .venv/bin/ruff check app tools tests
+
+      - name: bandit
+        run: .venv/bin/bandit -c pyproject.toml -r app tools
+
+      - name: mypy --strict (Windows)
+        run: .venv/bin/mypy --platform win32 --exclude 'plat/linux\.py$'
+
+      - name: mypy --strict (Linux)
+        run: .venv/bin/mypy --platform linux --exclude 'plat/windows\.py$'
+
+      - name: Sin secretos en el repositorio
+        run: |
+          # Ni claves de firma ni manifiestos generados deben estar versionados.
+          if git ls-files | grep -iE '\.hex$|clave_firma|(^|/)_integrity/|\.pem$|\.env$'; then
+            echo "hay archivos que no deben estar en el repositorio"; exit 1
+          fi
+          if git grep -nIiE "(api[_-]?key|secret|token|passw(or)?d)[\"']?\s*[:=]\s*[\"'][A-Za-z0-9+/_-]{16,}[\"']" -- . ':!requirements-dev.txt' ':!launcher/SuperLimpio.manifest'; then
+            echo "posible secreto en el código"; exit 1
+          fi
+
+      - name: Cobertura de los módulos que borran o se elevan (informativa)
+        run: |
+          sudo apt-get update -q && sudo apt-get install -y -q python3-tk tk
+          .venv/bin/python -m coverage run -m unittest discover -s tests
+          .venv/bin/python -m coverage report --include='*/fileops.py,*/cleaner.py,*/helper.py,*/safety.py,*/scanner.py'
+
   # A petición: baja el paquete de Linux de un release y lo prueba tal cual lo recibe quien
   # lo descarga. Comprueba que arranca, que la firma de integridad se acepta y que, si se
-  # modifica un archivo, la aplicación se niega a continuar.
+  # modifica o se añade un archivo, la aplicación se niega a continuar.
   paquete-publicado:
     if: github.event_name == 'workflow_dispatch' && inputs.etiqueta != ''
     strategy:
@@ -87,20 +165,31 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write   # solo para poder leer un release que aún es borrador; no se escribe nada
+    env:
+      XDG_STATE_HOME: ${{ runner.temp }}/estado
+      REGISTRO: ${{ runner.temp }}/estado/superlimpio/logs/acciones.log
     steps:
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.12"
+
       - name: Dependencias del sistema
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q python3-tk xvfb openbox fonts-dejavu-core
+          sudo apt-get install -y -q python3-tk tk xvfb openbox fonts-dejavu-core
 
       - name: Descarga
         env:
           GH_TOKEN: ${{ github.token }}
+          # La etiqueta llega como variable, no pegada dentro del guion: lo que escriba quien
+          # lanza el flujo no puede convertirse en comandos.
+          ETIQUETA: ${{ inputs.etiqueta }}
+          REPOSITORIO: ${{ github.repository }}
         run: |
-          gh release download "${{ inputs.etiqueta }}" -R "${{ github.repository }}" -p "*-linux.tar.gz"
+          gh release download "$ETIQUETA" -R "$REPOSITORIO" -p "*-linux.tar.gz"
           ls -l
-          sha256sum *-linux.tar.gz
-          tar -xzf *-linux.tar.gz
+          sha256sum -- *-linux.tar.gz
+          tar -xzf ./*-linux.tar.gz
           ls -l SuperLimpio
           test -x SuperLimpio/superlimpio.sh
           if grep -rlI $'\r' SuperLimpio --include='*.py' --include='*.sh'; then echo "finales de línea de Windows"; exit 1; fi
@@ -110,15 +199,26 @@ jobs:
         run: |
           test -f app/superlimpio/_integrity/manifest.sig
           timeout 20 xvfb-run -a sh -c 'openbox >/dev/null 2>&1 & sleep 1; ./superlimpio.sh' || test $? -eq 124
-          cat logs/acciones.log
-          grep '"accion": "integridad"' logs/acciones.log | grep -q '"ok": true'
-          if grep -q '"ok": false' logs/acciones.log; then echo "hay errores en el registro"; exit 1; fi
+          cat "$REGISTRO"
+          grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": true'
+          if grep -q '"accion": "error_' "$REGISTRO"; then echo "hay errores en el registro"; exit 1; fi
 
       - name: Un archivo modificado impide el arranque
         working-directory: SuperLimpio
         run: |
-          rm -f logs/acciones.log
+          rm -f "$REGISTRO"
+          cp app/superlimpio/util.py "$RUNNER_TEMP/util.py"
           echo "# cambio" >> app/superlimpio/util.py
           timeout 15 xvfb-run -a ./superlimpio.sh || true
-          cat logs/acciones.log
-          grep '"accion": "integridad"' logs/acciones.log | grep -q '"ok": false'
+          cat "$REGISTRO"
+          grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": false'
+          cp "$RUNNER_TEMP/util.py" app/superlimpio/util.py
+
+      - name: Un archivo añadido impide el arranque
+        working-directory: SuperLimpio
+        run: |
+          rm -f "$REGISTRO"
+          echo "# añadido" > app/superlimpio/sitecustomize.py
+          timeout 15 xvfb-run -a ./superlimpio.sh || true
+          cat "$REGISTRO"
+          grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": false'

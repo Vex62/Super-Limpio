@@ -1,0 +1,15 @@
+# Herramientas de revisión (no son dependencias de la aplicación, que solo usa la
+# biblioteca estándar). De aquí sale requirements-dev.txt, con cada paquete fijado por
+# versión y por huella:
+#
+#   python -m venv .venv
+#   .venv\Scripts\python -m pip install pip-tools
+#   .venv\Scripts\pip-compile --generate-hashes --allow-unsafe -o requirements-dev.txt requirements-dev.in
+#
+# Se instalan siempre en un entorno virtual y con --require-hashes; nunca en el Python
+# portable de runtime\ ni en el del sistema.
+ruff==0.17.0
+bandit==1.9.4
+mypy==2.4.0
+pip-audit==2.10.1
+coverage==7.10.7
