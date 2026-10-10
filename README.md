@@ -6,6 +6,8 @@ Aplicación de escritorio para **Windows 10/11** y **Linux** que enseña de un v
 
 Todo es **local**: la app no se conecta a Internet, no instala servicios, no se queda en segundo plano y no modifica el registro.
 
+**¿Primera vez?** Lee [Antes de ejecutar](ANTES_DE_EJECUTAR.md) ([Before run](BEFORE_RUN.md), in English): qué necesita tu equipo en Windows y en Linux y cómo conseguirlo.
+
 ## Descargas
 
 Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.0**:
