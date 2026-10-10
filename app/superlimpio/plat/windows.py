@@ -11,6 +11,7 @@ valores neutros): así los tests de su lógica pura corren en cualquier equipo.
 from __future__ import annotations
 
 import datetime as _dt
+import ntpath
 import os
 import re
 import string
@@ -567,7 +568,7 @@ def send_to_recycle_bin(paths: list[str]) -> tuple[bool, str]:
 def admin_command(script: str) -> tuple[str, str]:
     """(ejecutable, parámetros) con los que se reabre la aplicación elevada."""
     exe = sys.executable
-    if not os.path.basename(exe).lower().startswith("python"):
+    if not ntpath.basename(exe).lower().startswith("python"):
         return exe, ""  # SuperLimpio.exe ya sabe dónde está la aplicación
     if exe.lower().endswith("python.exe"):
         alt = exe[:-10] + "pythonw.exe"
