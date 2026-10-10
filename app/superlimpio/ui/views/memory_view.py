@@ -40,6 +40,10 @@ class MemoryView(View):
         self.ram_txt.pack(fill="x")
 
         bar = self.toolbar()
+        # Los botones de la derecha se colocan primero: si falta ancho, cede el buscador y no ellos.
+        ttk.Button(bar, text=i18n.t("memory.kill"), style="Danger.TButton", command=self.kill).pack(side="right")
+        ttk.Button(bar, text=i18n.t("common.open_location"), command=self.open_location).pack(
+            side="right", padx=self.px(6))
         ttk.Button(bar, text=i18n.t("common.refresh"), command=self.refresh).pack(side="left")
         self.auto = tk.BooleanVar(value=True)
         ttk.Checkbutton(bar, text=i18n.t("memory.auto"), variable=self.auto, style="Bg.TCheckbutton",
@@ -51,9 +55,6 @@ class MemoryView(View):
         self.q = tk.StringVar()
         self.q.trace_add("write", lambda *_: self.table.refresh())
         ttk.Entry(bar, textvariable=self.q, width=22).pack(side="left")
-        ttk.Button(bar, text=i18n.t("memory.kill"), style="Danger.TButton", command=self.kill).pack(side="right")
-        ttk.Button(bar, text=i18n.t("common.open_location"), command=self.open_location).pack(
-            side="right", padx=self.px(6))
 
         cols = [("name", i18n.t("memory.col.program"), 240, "w"), ("level", i18n.t("memory.col.level"), 105, "w"),
                 ("count", i18n.t("memory.col.processes"), 75, "e"),

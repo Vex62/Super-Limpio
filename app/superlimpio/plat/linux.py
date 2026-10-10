@@ -382,22 +382,47 @@ def open_in_explorer(path: str) -> tuple[bool, str]:
     return shell_execute(path)
 
 
+# (programa, opción tras la que va el comando, True si lo quiere en UN solo argumento).
+# Cada terminal lo pide a su manera, y con la opción equivocada se abre vacía o no se abre.
 _TERMINALS = (
-    ("x-terminal-emulator", ["-e"]), ("gnome-terminal", ["--"]), ("kgx", ["-e"]), ("konsole", ["-e"]),
-    ("xfce4-terminal", ["-x"]), ("mate-terminal", ["-x"]), ("tilix", ["-e"]), ("lxterminal", ["-e"]),
-    ("alacritty", ["-e"]), ("kitty", []), ("foot", []), ("xterm", ["-e"]),
+    ("gnome-terminal", ["--"], False), ("ptyxis", ["--"], False), ("kgx", ["-e"], False),
+    ("konsole", ["-e"], False), ("xfce4-terminal", ["-x"], False), ("mate-terminal", ["-x"], False),
+    ("tilix", ["-e"], False), ("terminator", ["-x"], False), ("lxterminal", ["-e"], True),
+    ("qterminal", ["-e"], True), ("alacritty", ["-e"], False), ("kitty", [], False), ("foot", [], False),
+    ("wezterm", ["start", "--"], False), ("xterm", ["-e"], False),
 )
+
+
+def _terminal() -> tuple[str, list[str], bool] | None:
+    """La terminal que se usará: (ejecutable, opción, un solo argumento). Primero la que el
+    usuario tiene elegida en su escritorio; si no hay forma de saberlo, la primera conocida."""
+    exe = shutil.which("xdg-terminal-exec")
+    if exe:
+        return exe, [], False
+    exe = shutil.which("x-terminal-emulator")   # la «alternativa» de Debian, Ubuntu y derivadas
+    if exe:
+        real = os.path.basename(os.path.realpath(exe))
+        for name, flag, single in _TERMINALS:
+            if real == name:   # apunta al programa tal cual: se le habla en su idioma
+                return exe, flag, single
+        return exe, ["-e"], False   # un envoltorio de la distribución: todos admiten «-e»
+    for name, flag, single in _TERMINALS:
+        exe = shutil.which(name)
+        if exe:
+            return exe, flag, single
+    return None
 
 
 def terminal_argv(command: str) -> list[str]:
     """Orden para abrir una terminal que ejecuta «command» y no se cierra hasta pulsar Intro,
     para que se pueda leer el resultado. Lista vacía si no hay ninguna terminal conocida."""
     script = f"{command}; echo; printf '%s' {shlex.quote(i18n.t('linux.press_enter'))}; read _"
-    for name, flag in _TERMINALS:
-        exe = shutil.which(name)
-        if exe:
-            return [exe, *flag, "sh", "-c", script]
-    return []
+    found = _terminal()
+    if found is None:
+        return []
+    exe, flag, single = found
+    inner = ["sh", "-c", script]
+    return [exe, *flag, shlex.join(inner)] if single else [exe, *flag, *inner]
 
 
 def run_in_terminal(command: str) -> tuple[bool, str]:

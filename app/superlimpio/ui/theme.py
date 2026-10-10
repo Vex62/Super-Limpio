@@ -67,7 +67,7 @@ GLYPHS = {
     "boost": "",
 }
 FALLBACK_GLYPHS = {
-    "home": "⌂", "drive": "◫", "apps": "▦", "memory": "▤", "startup": "⏻", "clean": "✧",
+    "home": "⌂", "drive": "◫", "apps": "▦", "memory": "▤", "startup": "▷", "clean": "✧",
     "code": "‹›", "tools": "⚙", "log": "≡", "folder": "▭", "shield": "◈", "warning": "!",
     "boost": "↯",
 }

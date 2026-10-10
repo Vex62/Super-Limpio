@@ -8,7 +8,12 @@
 # No instala nada en el sistema ni necesita permisos de administrador.
 
 set -e
-HERE=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# Si se abre a través de un enlace simbólico (p. ej. ~/bin/superlimpio), se va a la carpeta real.
+SELF=$0
+if command -v readlink >/dev/null 2>&1; then
+    SELF=$(readlink -f -- "$0" 2>/dev/null) || SELF=$0
+fi
+HERE=$(CDPATH= cd -- "$(dirname -- "$SELF")" && pwd)
 ENTRY="${XDG_DATA_HOME:-$HOME/.local/share}/applications/superlimpio.desktop"
 
 PYTHON=

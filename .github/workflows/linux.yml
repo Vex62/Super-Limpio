@@ -7,6 +7,11 @@ on:
   push:
     branches: [main, multiplataforma]
   workflow_dispatch:
+    inputs:
+      etiqueta:
+        description: "Etiqueta de un release (aunque sea borrador) cuyo paquete de Linux se verifica tal cual se descarga"
+        required: false
+        default: ""
 
 jobs:
   pruebas:
@@ -38,6 +43,11 @@ jobs:
           XDG_DATA_HOME="$RUNNER_TEMP/datos" ./superlimpio.sh --instalar
           cat "$RUNNER_TEMP/datos/applications/superlimpio.desktop"
           XDG_DATA_HOME="$RUNNER_TEMP/datos" ./superlimpio.sh --quitar
+          # A través de un enlace simbólico tiene que encontrar igualmente su carpeta
+          mkdir -p "$RUNNER_TEMP/bin" && ln -s "$PWD/superlimpio.sh" "$RUNNER_TEMP/bin/superlimpio"
+          XDG_DATA_HOME="$RUNNER_TEMP/datos" "$RUNNER_TEMP/bin/superlimpio" --instalar
+          grep -F "Exec=\"$PWD/superlimpio.sh\"" "$RUNNER_TEMP/datos/applications/superlimpio.desktop"
+          XDG_DATA_HOME="$RUNNER_TEMP/datos" "$RUNNER_TEMP/bin/superlimpio" --quitar
 
       - name: Recorrido por la interfaz
         run: |
@@ -63,3 +73,52 @@ jobs:
           name: capturas-${{ matrix.os }}
           path: capturas
           if-no-files-found: ignore
+
+  # A petición: baja el paquete de Linux de un release y lo prueba tal cual lo recibe quien
+  # lo descarga. Comprueba que arranca, que la firma de integridad se acepta y que, si se
+  # modifica un archivo, la aplicación se niega a continuar.
+  paquete-publicado:
+    if: github.event_name == 'workflow_dispatch' && inputs.etiqueta != ''
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    permissions:
+      contents: write   # solo para poder leer un release que aún es borrador; no se escribe nada
+    steps:
+      - name: Dependencias del sistema
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q python3-tk xvfb openbox fonts-dejavu-core
+
+      - name: Descarga
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download "${{ inputs.etiqueta }}" -R "${{ github.repository }}" -p "*-linux.tar.gz"
+          ls -l
+          sha256sum *-linux.tar.gz
+          tar -xzf *-linux.tar.gz
+          ls -l SuperLimpio
+          test -x SuperLimpio/superlimpio.sh
+          if grep -rlI $'\r' SuperLimpio --include='*.py' --include='*.sh'; then echo "finales de línea de Windows"; exit 1; fi
+
+      - name: Arranca y acepta la firma
+        working-directory: SuperLimpio
+        run: |
+          test -f app/superlimpio/_integrity/manifest.sig
+          timeout 20 xvfb-run -a sh -c 'openbox >/dev/null 2>&1 & sleep 1; ./superlimpio.sh' || test $? -eq 124
+          cat logs/acciones.log
+          grep '"accion": "integridad"' logs/acciones.log | grep -q '"ok": true'
+          if grep -q '"ok": false' logs/acciones.log; then echo "hay errores en el registro"; exit 1; fi
+
+      - name: Un archivo modificado impide el arranque
+        working-directory: SuperLimpio
+        run: |
+          rm -f logs/acciones.log
+          echo "# cambio" >> app/superlimpio/util.py
+          timeout 15 xvfb-run -a ./superlimpio.sh || true
+          cat logs/acciones.log
+          grep '"accion": "integridad"' logs/acciones.log | grep -q '"ok": false'

@@ -4,6 +4,7 @@ Ejecutar:  runtime\\python\\python.exe -m unittest discover -s tests -v
 """
 
 import os
+import shlex
 import sys
 import tempfile
 import threading
@@ -1121,6 +1122,35 @@ class LinuxPlatformTests(unittest.TestCase):
         self.assertTrue(cleaner.default_categories())
         caps = plat.capabilities()
         self.assertFalse(caps["elevate"] or caps["trim"])
+
+    def test_each_terminal_gets_the_command_its_own_way(self):
+        from unittest import mock
+
+        def argv_with(installed, real=None):
+            which = lambda name: installed.get(name)   # noqa: E731
+            with mock.patch.object(self.lx.shutil, "which", which), \
+                    mock.patch.object(self.lx.os.path, "realpath", lambda p: real or p):
+                return self.lx.terminal_argv("sudo apt-get clean")
+
+        self.assertEqual(argv_with({}), [])
+        gnome = argv_with({"gnome-terminal": "/usr/bin/gnome-terminal", "xterm": "/usr/bin/xterm"})
+        self.assertEqual(gnome[:4], ["/usr/bin/gnome-terminal", "--", "sh", "-c"])
+        self.assertTrue(gnome[4].startswith("sudo apt-get clean; "))
+        # La elegida por el usuario manda sobre el orden de la lista
+        chosen = argv_with({"gnome-terminal": "/usr/bin/gnome-terminal", "x-terminal-emulator": "/usr/bin/x-t-e"},
+                           real="/usr/bin/konsole")
+        self.assertEqual(chosen[:4], ["/usr/bin/x-t-e", "-e", "sh", "-c"])
+        wrapped = argv_with({"x-terminal-emulator": "/usr/bin/x-t-e"}, real="/usr/bin/gnome-terminal.wrapper")
+        self.assertEqual(wrapped[:2], ["/usr/bin/x-t-e", "-e"])
+        direct = argv_with({"x-terminal-emulator": "/usr/bin/x-t-e"}, real="/usr/bin/ptyxis")
+        self.assertEqual(direct[:3], ["/usr/bin/x-t-e", "--", "sh"])
+        # lxterminal vuelve a trocear lo que recibe: el comando va entero, entrecomillado
+        single = argv_with({"lxterminal": "/usr/bin/lxterminal"})
+        self.assertEqual(len(single), 3)
+        self.assertEqual(shlex.split(single[2])[:2], ["sh", "-c"])
+        self.assertEqual(shlex.split(single[2])[2], gnome[4])
+        self.assertEqual(argv_with({"xdg-terminal-exec": "/usr/bin/xdg-terminal-exec",
+                                    "xterm": "/usr/bin/xterm"})[:2], ["/usr/bin/xdg-terminal-exec", "sh"])
 
     def test_desktop_entries_are_read_without_running_anything(self):
         with tempfile.TemporaryDirectory() as tmp:
