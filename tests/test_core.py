@@ -1127,7 +1127,8 @@ class LinuxPlatformTests(unittest.TestCase):
                 ok, msg = self.lx.send_to_recycle_bin([victim])
                 self.assertTrue(ok, msg)
                 info = os.path.join(os.fsencode(tmp), b"datos", b"Trash", b"info", b"caf\xe9.txt.trashinfo")
-                self.assertIn(b"/trabajo/caf%E9.txt\n", open(info, "rb").read())
+                with open(info, "rb") as fh:
+                    self.assertIn(b"/trabajo/caf%E9.txt\n", fh.read())
 
     def test_system_paths_cannot_be_deleted(self):
         home = os.path.expanduser("~")
