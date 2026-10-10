@@ -64,10 +64,17 @@ Tres capas, de mayor a menor efecto, **sin dependencias de pago**:
    ```
 
 Al arrancar, la app comprueba que la firma del manifiesto es válida para la clave
-pública incrustada y que cada archivo conserva su hash. Si alguien **modifica, añade o
-sustituye** un archivo de una copia publicada, la firma deja de cuadrar y la app se
-niega a continuar. La clave privada solo la tienes tú, así que nadie puede volver a
-firmar una versión manipulada en tu nombre.
+pública incrustada, que cada archivo conserva su hash y que **no hay archivos de más**:
+si alguien modifica o sustituye un archivo de una copia publicada, o añade uno dentro
+de `app` (un `.py` junto a un `.pyc` firmado se cargaría en su lugar) o código suelto
+junto al ejecutable (una `.dll`, un `.pth`), la app se niega a continuar. La clave
+privada solo la tienes tú, así que nadie puede volver a firmar una versión manipulada
+en tu nombre. El auxiliar elevado hace la misma comprobación antes de actuar.
+
+Qué **no** cubre el manifiesto: la carpeta `runtime` (el Python portable, cuyos
+binarios ya van firmados por la Python Software Foundation; hashearlos todos haría
+lento el arranque). Las bibliotecas de Windows se cargan solo desde System32, así que
+una copia falsa junto a la aplicación no se usa.
 
 ### b) Bytecode sin fuente
 
@@ -81,8 +88,9 @@ bytecode sigue siendo descompilable.
 Para subir mucho más el listón de la descompilación:
 
 ```
-pip install pyarmor            (en el Python del runtime)
-runtime\python\python.exe tools\crear_zip.py --protegido --pyarmor
+py -3.12 -m venv .venv-build        (un entorno aparte: nunca en el Python portable de runtime\)
+.venv-build\Scripts\python -m pip install pyarmor==<versión revisada>
+.venv-build\Scripts\python tools\crear_zip.py --protegido --pyarmor
 ```
 
 Si PyArmor no está instalado, la build continúa sin ofuscar y lo avisa.

@@ -60,13 +60,13 @@ En este zip no viene `SuperLimpio.exe`, porque los programas compilados no se gu
 
 ### Una vez abierta
 
-- La app arranca como **usuario normal** y con eso basta para casi todo. Para limpiar carpetas del sistema o ver procesos de otros usuarios, pulsa *Reiniciar como administrador…* (abajo a la izquierda): Windows mostrará su aviso de permisos (UAC).
+- La app trabaja siempre como **usuario normal**; no hay «reiniciar como administrador». Cuando una operación concreta lo necesita (vaciar la carpeta temporal de Windows, borrar algo que tu usuario no puede), te lo ofrece al momento: un **auxiliar aparte** hace solo esa operación, tras otra confirmación y el aviso de permisos de Windows (UAC).
 - Nada se borra sin que lo confirmes antes: cada acción enseña exactamente qué va a tocar.
-- Para quitar Super Limpio del equipo, borra su carpeta. No deja nada más.
+- Para quitar Super Limpio del equipo, borra su carpeta y, si quieres, `%LOCALAPPDATA%\SuperLimpio` (el registro de acciones). No instala nada más.
 
 ## Linux
 
-Hay un paquete aparte, `SuperLimpio-<versión>-linux.tar.gz`, con el mismo código y un lanzador para Linux. Se baja del release «Super Limpio <versión> para Linux». No lleva Python: usa el del sistema (3.10 o posterior, con tkinter).
+Hay un paquete aparte, `SuperLimpio-<versión>-linux.tar.gz`, con el mismo código y un lanzador para Linux. Se baja del release «Super Limpio <versión> para Linux». No lleva Python: usa el del sistema (**3.11 o posterior**, con tkinter). En Ubuntu 22.04, cuyo Python es el 3.10, hay que instalar uno más nuevo (por ejemplo `python3.11` y `python3.11-tk`); el lanzador lo encuentra solo.
 
 ```
 tar -xzf SuperLimpio-<versión>-linux.tar.gz
@@ -94,9 +94,9 @@ Qué cambia respecto a Windows:
 | **Terminal** | La que tengas elegida en el escritorio (`xdg-terminal-exec` o `x-terminal-emulator`); si no se sabe, la primera que haya de GNOME Terminal, Ptyxis, Konsole, Xfce, MATE, Tilix, Terminator, LXTerminal, QTerminal, Alacritty, kitty, foot, WezTerm o xterm |
 | **Nombres de archivo** | Los que no son UTF-8 válido (discos antiguos, copias de otros sistemas) se analizan, se envían a la Papelera y se comprimen igual; dentro de un 7z o ZIP sus letras ilegibles se guardan con el signo de sustitución de Unicode |
 
-No hay «reiniciar como administrador»: una interfaz gráfica como root no es buena idea en Linux. Lo que necesita privilegios se hace en una terminal con `sudo`, a la vista.
+La aplicación nunca corre como root: una interfaz gráfica con privilegios no es buena idea. Lo que los necesita se hace en una terminal con `sudo`, a la vista.
 
-**Qué está probado.** En cada cambio, GitHub Actions ejecuta en Ubuntu 22.04 y 24.04 las pruebas de la lógica, llamadas reales al sistema (procesos, Papelera, prioridades) y un recorrido por toda la interfaz bajo un servidor gráfico virtual, y guarda capturas de cada sección (`.github/workflows/linux.yml`). El paquete publicado se descarga y se prueba tal cual, firma incluida. Fedora, Arch y openSUSE están contemplados en el código (rpm, pacman, dnf, zypper y sus rutas) pero **no se han probado**, ni tampoco un escritorio real con GNOME o KDE.
+**Qué está probado.** En cada cambio, GitHub Actions ejecuta en Windows y en Ubuntu 22.04 y 24.04, con Python 3.11 y 3.13, las pruebas de la lógica y las de seguridad, llamadas reales al sistema (procesos, Papelera, prioridades) y un recorrido por toda la interfaz (en Linux bajo un servidor gráfico virtual, guardando capturas de cada sección), y pasa ruff, bandit, mypy para las dos plataformas y pip-audit (`.github/workflows/linux.yml`). El paquete publicado se descarga y se prueba tal cual, firma incluida. Fedora, Arch y openSUSE están contemplados en el código (rpm, pacman, dnf, zypper y sus rutas) pero **no se han probado**, ni tampoco un escritorio real con GNOME o KDE.
 
 Lo que depende del sistema operativo está aislado en `app/superlimpio/plat/`: `windows.py` y `linux.py` hacen las llamadas al sistema, y `windows_know.py` y `linux_know.py` saben qué procesos y carpetas son vitales en cada uno.
 
@@ -120,7 +120,7 @@ El área de trabajo ya apunta al Python portable. Dentro de VS Code:
 Sin VS Code, desde una consola en la carpeta del proyecto:
 
 ```bat
-runtime\python\python.exe -B -m unittest discover -s tests -v
+runtime\python\python.exe -I -B -m unittest discover -s tests -v
 runtime\python\python.exe -B tools\crear_zip.py
 runtime\python\python.exe -B tools\crear_zip.py --con-python
 runtime\python\python.exe -B tools\crear_exe.py
@@ -129,7 +129,21 @@ runtime\python\python.exe -B tools\crear_zip.py --protegido
 runtime\python\python.exe -B tools\crear_linux.py
 ```
 
-En Linux es lo mismo con `python3` y barras normales (`python3 -B -m unittest discover -s tests -v`). `tests/smoke_gui.py` recorre la interfaz real sin pulsar nada que borre o cierre; sin escritorio se lanza con `xvfb-run -a python3 tests/smoke_gui.py capturas`.
+En Linux es lo mismo con `python3` y barras normales (`python3 -I -B -m unittest discover -s tests -v`). `tests/test_core.py` prueba la lógica y `tests/test_seguridad.py` lo que exige la ficha de seguridad para el código que borra, limpia o se eleva (rutas con `..`, enlaces y junctions, nombres reservados, rutas largas, archivos bloqueados, cancelación a mitad de lote, órdenes al auxiliar…). `tests/smoke_gui.py` recorre la interfaz real sin pulsar nada que borre o cierre; sin escritorio se lanza con `xvfb-run -a python3 tests/smoke_gui.py capturas`.
+
+Las herramientas de revisión (ruff, bandit, mypy, pip-audit, coverage) **no** se instalan en el Python portable: van en un entorno virtual, con cada paquete fijado por versión y por huella.
+
+```bat
+py -3.12 -m venv .venv
+.venv\Scripts\python -m pip install --require-hashes -r requirements-dev.txt
+.venv\Scripts\ruff check app tools tests
+.venv\Scripts\bandit -c pyproject.toml -r app tools
+.venv\Scripts\mypy --platform win32 --exclude "plat/linux\.py$"
+.venv\Scripts\mypy --platform linux --exclude "plat/windows\.py$"
+.venv\Scripts\pip-audit --require-hashes --disable-pip -r requirements-dev.txt
+```
+
+`pyproject.toml` recoge la configuración y las excepciones, cada una con su motivo. El núcleo pasa `mypy --strict`; la interfaz (tkinter) está exceptuada de momento.
 
 ### Generar los paquetes
 
@@ -173,7 +187,7 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 | **Limpieza** | Temporales, informes de error, cachés de navegadores, de desarrollo (pip, npm, Gradle, Cargo, NuGet), de shaders, Windows Update, papelera… | Analiza primero sin tocar nada; luego limpia lo marcado |
 | **Librerías de desarrollo** | `node_modules`, `.venv`, `__pycache__`, `target`, `bin/obj` de .NET, `.next`, `.gradle`… dentro de tus proyectos | Marcar (incluso «más de 6 meses sin tocar») y enviar a la Papelera o borrar |
 | **Herramientas del sistema** | Comandos oficiales: Almacenamiento, Liberador de espacio, punto de restauración, análisis y limpieza de WinSxS (DISM), desactivar hibernación | Ejecutar, viendo antes el **comando literal** |
-| **Registro de acciones** | Todo lo que la app ha hecho, con fecha y resultado (`logs\acciones.log`) | — |
+| **Registro de acciones** | Todo lo que la app ha hecho, con fecha y resultado. Se guarda en la carpeta del usuario (`%LOCALAPPDATA%\SuperLimpio\logs\acciones.log` en Windows, `~/.local/state/superlimpio/logs/` en Linux), rota al llegar a 1 MiB y conserva tres archivos anteriores | — |
 
 La tabla describe Windows. En Linux las secciones son las mismas con los equivalentes del sistema: ver [Linux](#linux).
 
@@ -184,15 +198,17 @@ La tabla describe Windows. En Linux las secciones son las mismas con los equival
 - **Nada se ejecuta sin tu permiso.** Cada acción abre una ventana que muestra exactamente qué rutas o qué comando se van a usar. El botón por defecto es *Cancelar*.
 - **Niveles de riesgo**: *Medio* → confirmación simple. *Alto* → además hay que marcar «He revisado…». *Crítico* (borrado definitivo, DISM, powercfg) → además hay que **escribir CONFIRMAR**.
 - **La Papelera es la opción por defecto**; el borrado definitivo es una acción aparte.
-- **Rutas protegidas**: la app se niega a borrar la carpeta de Windows, *Archivos de programa*, `ProgramData\Microsoft`, la raíz de las unidades, `$Recycle.Bin` y `System Volume Information` de cualquier unidad, tu carpeta de usuario y sus carpetas principales (Escritorio, Documentos…), `pagefile.sys`/`hiberfil.sys` y la propia carpeta de la app. Para quitar programas usa siempre *Desinstalar*.
+- **Rutas protegidas**: la app se niega a borrar la carpeta de Windows, *Archivos de programa*, `ProgramData\Microsoft`, la raíz de las unidades y de cualquier disco montado, `$Recycle.Bin` y `System Volume Information` de cualquier unidad, tu carpeta de usuario y sus carpetas principales (Escritorio, Documentos…), **las carpetas de otros usuarios**, `pagefile.sys`/`hiberfil.sys` y la propia carpeta de la app. Para quitar programas usa siempre *Desinstalar*. Se compara la ruta **real**, no el texto: da igual que se escriba con otro uso de mayúsculas, con `/`, con `..`, con el nombre corto (`PROGRA~1`), con el prefijo `\\?\`, como recurso de red del propio equipo (`\\localhost\C$`) o a través de un enlace o *junction*. Los nombres de dispositivo de Windows (`CON`, `NUL`…) y los flujos alternativos (`archivo:flujo`) se rechazan.
 - **Procesos protegidos**: `csrss`, `lsass`, `winlogon`, `services`, `svchost`, `dwm`, antivirus de Defender… no se pueden finalizar.
 - **Importancia para el sistema**: cada proceso y cada archivo o carpeta lleva un nivel (*Normal*, *Precaución*, *Importante*, *Vital*) con una frase que explica qué es y otra con el riesgo de cerrarlo o borrarlo. Se ve en «Memoria y procesos», en el análisis de «Optimizar» y en el «Analizador de disco», y los avisos de confirmación lo repiten cuando la selección incluye algo delicado (`app\superlimpio\criticality.py`).
 - **Cierre ordenado**: al salir (la X, Ctrl+Q o «Finalizar» sobre el propio Super Limpio) se avisa si hay un borrado o una limpieza a medias, se ofrece deshacer el Modo eficiente y se detienen los análisis en marcha.
 - **El Modo eficiente propone, no decide.** Se basa en lo que hacen el modo de eficiencia de Windows 11, Process Lasso, Microsoft PC Manager o Razer Cortex, pero sin automatismos: enseña la lista exacta (qué se ralentiza, a qué se le pide que se cierre, qué se finaliza) y espera tu confirmación. La acción por defecto es **ralentizar**, que no cierra nada y se deshace con un botón. A los programas con ventana se les *pide* que se cierren, como si pulsaras su X, así que pueden preguntarte si guardas; forzar el cierre es una casilla aparte y sube el riesgo a *Alto*. Nunca aparecen en la lista Windows y sus servicios, el antivirus, los anti-trampas, la propia app ni nada relacionado con el programa que has elegido (su carpeta, sus procesos hijos y quien lo lanzó). Tampoco se detienen servicios ni se asigna prioridad «Alta» o «Tiempo real». Antes de actuar se comprueba que cada proceso sigue siendo el mismo que se analizó (Windows reutiliza los PID). Los cambios duran lo que la sesión: si cierras la app con el modo activo, pregunta si deshacerlo.
 - **Comprimir no toca los originales.** El compresor es propio (biblioteca estándar de Python, sin programas externos) y genera archivos estándar que abren 7-Zip y WinRAR: **7z** con LZMA2 en bloque sólido (los mejores índices; varios hilos si la memoria del equipo lo permite) o **ZIP** con Deflate (lo abre cualquier sistema). La contraseña es opcional y cifra con **AES-256** usando la criptografía del propio sistema (CNG en Windows, OpenSSL en Linux); en 7z se cifran también los nombres de los archivos. La contraseña no se guarda ni se registra, y si se olvida no hay forma de recuperar el contenido. En ZIP solo se admiten contraseñas ASCII, porque cada programa interpreta de forma distinta las tildes y la «ñ». Se escribe en un archivo `.part` que solo recibe su nombre al terminar bien: si se detiene o falla, no queda nada a medias. Al acabar se **relee y comprueba** el archivo entero. No se siguen enlaces ni se descargan archivos «solo en la nube»: se omiten y se avisa. Enviar los originales a la Papelera es una casilla aparte, exige que la comprobación haya salido bien y que no se haya omitido nada, y pide su propia confirmación.
-- **La limpieza solo actúa sobre una lista cerrada de ubicaciones conocidas**, respeta los archivos en uso y en `%TEMP%` conserva lo modificado en las últimas 24 h.
-- **No sigue enlaces simbólicos ni *junctions*** al analizar o borrar (evita contar doble o salirse de la carpeta). Los archivos de OneDrive «solo en la nube» se cuentan aparte porque no ocupan disco.
-- **Administrador solo cuando hace falta**: «Reiniciar como administrador» pide confirmación y además Windows muestra su aviso UAC. Las herramientas que necesitan elevación (DISM, powercfg) se lanzan cada una con su propio aviso UAC y en una consola visible.
+- **La limpieza solo actúa sobre una lista cerrada de ubicaciones conocidas**, respeta los archivos en uso y en `%TEMP%` conserva lo modificado en las últimas 24 h. Las carpetas del sistema se le preguntan a Windows (no se toman de variables de entorno, que cualquier programa puede cambiar) y, antes de vaciar una, se comprueba dónde está de verdad: si es un enlace, o resulta ser tu carpeta de usuario, un disco entero o una zona con carpetas protegidas dentro, se deja sin tocar y se avisa. Como no pasa por la Papelera, la confirmación exige marcar «He revisado…».
+- **No sigue enlaces simbólicos ni *junctions*** al analizar o borrar (evita contar doble o salirse de la carpeta): de un enlace se quita el enlace, nunca su destino, y el tipo de cada elemento se vuelve a mirar justo antes de tocarlo. Tampoco se sale a otros discos montados dentro de la carpeta ni entra en `/proc`, `/sys`, `/dev` o `/run`. Los archivos de OneDrive «solo en la nube» se cuentan aparte porque no ocupan disco.
+- **Un fallo no detiene el lote y el resumen dice lo que pasó de verdad**: si un archivo está en uso o falta el permiso, se sigue con los demás y se informa de cuáles quedaron; lo que ya no existía se cuenta aparte. Un borrado en marcha se puede detener y deja hecho solo lo que ya estaba hecho.
+- **Una sola ventana**: no se pueden abrir dos Super Limpio a la vez en la misma sesión, para que no haya dos limpiezas sobre las mismas carpetas.
+- **Sin privilegios, salvo una operación concreta**: la ventana corre siempre como usuario normal (el manifiesto del `.exe` es `asInvoker`). Lo que necesita administrador lo hace un **auxiliar** aparte, mínimo y sin interfaz (`app\superlimpio\helper.py`): recibe una orden concreta —nunca un comando libre—, comprueba que es exactamente la que confirmaste (por su huella SHA-256), vuelve a validar cada ruta con las mismas reglas de rutas protegidas y termina. Las categorías de limpieza las saca de su propia lista; la orden solo trae sus nombres. Las herramientas del sistema que necesitan elevación (DISM, powercfg) se lanzan cada una con su propio aviso UAC, por su ruta completa de System32 y en una consola visible. Si abres la app «como administrador» por tu cuenta, lo indica y recuerda que no hace falta.
 
 ## Antivirus y falsos positivos
 
@@ -215,7 +231,7 @@ Lo que **sí** puede preguntar Windows, y es lo esperado:
 | Aviso | Cuándo | Qué hacer |
 |---|---|---|
 | SmartScreen «Windows protegió su PC» | Primer arranque de un `.exe` o `.bat` venido de Internet | *Más información › Ejecutar de todas formas*, o desbloquear el zip antes de descomprimir |
-| UAC «¿Quieres permitir que esta aplicación haga cambios?» | Al reiniciar como administrador o lanzar DISM/powercfg | Con `SuperLimpio.exe` el aviso es amarillo y dice *Editor desconocido* (no está firmado): comprueba que la ruta es la de tu carpeta. Con `SuperLimpio.bat` el editor es *Python Software Foundation*; en DISM/powercfg, *Microsoft Windows* |
+| UAC «¿Quieres permitir que esta aplicación haga cambios?» | Al encargar una operación al auxiliar elevado (limpiar carpetas del sistema, borrar algo que requiere administrador) o lanzar DISM/powercfg | Con `SuperLimpio.exe` el aviso es amarillo y dice *Editor desconocido* (no está firmado): comprueba que la ruta es la de tu carpeta. Con `SuperLimpio.bat` el editor es *Python Software Foundation*; en DISM/powercfg, *Microsoft Windows* |
 | «Acceso controlado a carpetas» de Defender | Si lo tienes activado y borras dentro de Documentos, Imágenes… | Permitir `SuperLimpio.exe` (o `pythonw.exe` si usas el `.bat`) en *Seguridad de Windows › Protección contra ransomware* |
 
 Si algún antivirus marcase un archivo, no lo excluyas a ciegas: súbelo a [VirusTotal](https://www.virustotal.com) y revisa qué motor lo detecta. Todo el código es texto legible.
@@ -244,6 +260,7 @@ SuperLimpio/
 │     ├─ safety.py       rutas/procesos protegidos, riesgos, registro
 │     ├─ criticality.py  importancia para el sistema de cada proceso, archivo y carpeta
 │     ├─ fileops.py      Papelera y borrado con comprobaciones
+│     ├─ helper.py       auxiliar elevado: la única parte que corre como administrador, orden a orden
 │     ├─ archiver.py     compresor 7z / ZIP (LZMA2 sólido, Deflate, AES-256, verificación)
 │     ├─ aes.py          AES-256 con la criptografía del sistema (CNG en Windows, OpenSSL en Linux)
 │     ├─ config.py       preferencias (idioma, tamaño, divisores), con escritura atómica
@@ -260,25 +277,30 @@ SuperLimpio/
 │  ├─ SuperLimpio.manifest  manifiesto de Windows (arranca siempre sin elevar)
 │  └─ logo.png              logo; de aquí salen el icono del .exe y el de la ventana
 ├─ tests/test_core.py    tests de la lógica (y, en Linux, llamadas reales al sistema)
+├─ tests/test_seguridad.py  tests de seguridad: rutas, enlaces, borrado, limpieza, auxiliar, integridad
 ├─ tests/smoke_gui.py    recorrido automático por la interfaz real
 ├─ tools/crear_exe.py    compila SuperLimpio.exe
 ├─ tools/crear_zip.py    genera los zips de Windows en dist/
 ├─ tools/crear_linux.py  genera el .tar.gz de Linux en dist/
 ├─ tools/firmar.py       claves, firma y verificación del manifiesto de integridad
-├─ .github/workflows/    flujo que prueba la aplicación y el paquete en Ubuntu
+├─ .github/workflows/    flujo que prueba la aplicación en Windows y Ubuntu y pasa las herramientas de revisión
+├─ pyproject.toml        versión de Python admitida y configuración de ruff, mypy y bandit
+├─ requirements-dev.txt  herramientas de revisión, fijadas por versión y por huella (no son dependencias de la app)
 ├─ runtime/              Python portable y caché de código compilado (no van a git)
 └─ tools/VSCode/         VS Code portable, opcional (no va a git)
 ```
 
 Solo usa la biblioteca estándar de Python: no hay que instalar paquetes con pip.
 
-`runtime\_pycache` guarda el código ya compilado para que la ventana abra antes cuando se usa `SuperLimpio.bat`; se puede borrar cuando quieras y se regenera sola. Con `SuperLimpio.exe` el código compilado va en las carpetas `__pycache__` de siempre, junto a cada archivo: el zip portable ya las trae hechas y siguen valiendo aunque muevas la carpeta. `build\` guarda los archivos intermedios de compilar el `.exe`. `logs\` guarda el registro de acciones.
+`runtime\_pycache` guarda el código ya compilado para que la ventana abra antes cuando se usa `SuperLimpio.bat`; se puede borrar cuando quieras y se regenera sola. Con `SuperLimpio.exe` el código compilado va en las carpetas `__pycache__` de siempre, junto a cada archivo: el zip portable ya las trae hechas y siguen valiendo aunque muevas la carpeta. `build\` guarda los archivos intermedios de compilar el `.exe`. El registro de acciones y las órdenes al auxiliar viven en la carpeta del usuario (`%LOCALAPPDATA%\SuperLimpio` en Windows, `~/.local/state/superlimpio` en Linux): para no dejar rastro, bórrala también al quitar la aplicación.
 
 ## Limitaciones conocidas
 
 - Las apps de **Microsoft Store** no siempre aparecen en el registro clásico: el botón «Apps de Microsoft Store…» abre Configuración para gestionarlas.
-- Sin permisos de administrador algunas carpetas del sistema no se pueden leer; el análisis indica cuántas y la app ofrece reiniciarse elevada.
-- Los archivos con enlaces duros (p. ej. dentro de `WinSxS`) pueden contarse más de una vez, igual que en el Explorador. Para WinSxS usa *Herramientas › Analizar almacén de componentes*, que da la cifra real.
+- Sin permisos de administrador algunas carpetas del sistema no se pueden leer: el análisis indica cuántas. La app ya no se reinicia elevada para verlas; lo que sí ofrece con elevación es terminar una limpieza o un borrado concretos.
+- En Windows, los archivos con enlaces duros (p. ej. dentro de `WinSxS`) pueden contarse más de una vez, igual que en el Explorador. Para WinSxS usa *Herramientas › Analizar almacén de componentes*, que da la cifra real. En Linux cada archivo se cuenta una sola vez y los archivos dispersos por lo que ocupan de verdad.
+- Los tamaños se muestran en base 1024 con sus nombres (KiB, MiB, GiB): 1 GiB son 1024 MiB.
+- `SuperLimpio.exe` sigue **sin firma Authenticode** (requiere un certificado de pago): es el único punto bloqueante de la ficha de seguridad que no se puede resolver desde el código.
 - **Linux**: probado solo en Ubuntu 22.04 y 24.04, y de forma automática (sin un escritorio real). En otras distribuciones puede haber rutas o herramientas que no se reconozcan.
 - **Linux**: el Modo eficiente necesita `wmctrl` para saber qué programas tienen ventana, y bajo Wayland solo ve las de XWayland. Ralentizar un programa no se puede deshacer sin ser administrador, así que no se propone por defecto.
-- **Linux**: no hay «Reiniciar como administrador». Lo que pertenece a otros usuarios o al sistema se muestra como «sin acceso».
+- **Linux**: no hay auxiliar elevado. Lo que pertenece a otros usuarios o al sistema se muestra como «sin acceso», y lo que necesita privilegios se hace en una terminal con `sudo`, a la vista.
