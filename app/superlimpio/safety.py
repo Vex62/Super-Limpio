@@ -72,8 +72,8 @@ def _real(path: str, follow_last: bool = False) -> str | None:
         return None
 
 
-def _keys(path: str) -> set[str] | None:
-    """Las formas de una misma ruta que hay que comparar: tal como se escribió y la real.
+def _keys(path: str) -> tuple[str, str] | None:
+    """Las formas de una misma ruta que hay que comparar: (tal como se escribió, la real).
     None si alguna no se sabe interpretar (se bloquea: ante la duda, no se borra)."""
     know = plat.native_know
     written = know.canonical(os.path.abspath(path))
@@ -81,7 +81,7 @@ def _keys(path: str) -> set[str] | None:
     real = know.canonical(real) if real else None
     if not written or not real:
         return None
-    return {norm_key(written), norm_key(real)}
+    return norm_key(written), norm_key(real)
 
 
 def _protected_roots() -> tuple[set[str], set[str], set[str]]:
@@ -125,8 +125,10 @@ class DeleteCheck:
     reason: str = ""
 
 
-def _blocked(key: str) -> str:
-    """Motivo por el que esa ruta (ya normalizada) no se puede borrar; '' si se puede."""
+def _blocked(key: str, real: bool = True) -> str:
+    """Motivo por el que esa ruta (ya normalizada) no se puede borrar; '' si se puede.
+    «real» = es la ruta ya resuelta. De quién es un perfil solo se juzga con ella: el texto
+    puede llevar el nombre corto del propio usuario (NOMBRE~1), que no es otro usuario."""
     know = plat.native_know
     _drive, rest = os.path.splitdrive(key)
     parts = [p for p in rest.replace("\\", "/").split("/") if p]
@@ -153,7 +155,7 @@ def _blocked(key: str) -> str:
             return i18n.t("safety.contains_protected")
     if not _ENV:
         _ENV.update(know.path_env(str(APP_ROOT)))
-    if know.foreign_profile(know.norm(key), _ENV):
+    if real and know.foreign_profile(know.norm(key), _ENV):
         return i18n.t("safety.other_profile")
     return ""
 
@@ -168,8 +170,9 @@ def check_deletable(path: str) -> DeleteCheck:
     keys = _keys(path)
     if keys is None:
         return DeleteCheck(False, i18n.t("safety.unresolved"))
-    for key in sorted(keys):
-        why = _blocked(key)
+    written, resolved = keys
+    for key, is_real in ((resolved, True), (written, False)):
+        why = _blocked(key, is_real)
         if why:
             return DeleteCheck(False, why)
     try:   # la raíz de otro disco montado (un USB en /media, una carpeta de montaje)

@@ -124,6 +124,17 @@ class ContainmentTests(_Tmp):
         for path in spellings:
             self.assertFalse(check_deletable(path).allowed, path)
 
+    @unittest.skipUnless(WINDOWS, "nombres cortos de Windows")
+    def test_own_profile_by_its_short_name_is_not_another_user(self):
+        # %TEMP% suele venir con el nombre corto del usuario (NOMBRE~1): sigue siendo su perfil.
+        env = {"users": r"C:\Users", "profile": r"C:\Users\Nombre Largo"}
+        own = (r"c:\users\nombre~1\appdata\local\temp\x", r"c:\users\nombre largo\appdata\local\temp\x")
+        other = (r"c:\users\otro~1\x", r"c:\users\otro usuario\x")
+        with mock.patch.object(safety, "_ENV", env), mock.patch.object(safety, "_keys", lambda p: own):
+            self.assertTrue(check_deletable(r"C:\Users\NOMBRE~1\AppData\Local\Temp\x").allowed)
+        with mock.patch.object(safety, "_ENV", env), mock.patch.object(safety, "_keys", lambda p: other):
+            self.assertFalse(check_deletable(r"C:\Users\OTRO~1\x").allowed)
+
     def test_reserved_names_and_alternate_streams(self):
         problem = windows_know.name_problem
         for name in ("CON", "con.txt", "NUL", "aux.tar.gz", "COM1", "lpt9.log", "PRN."):
@@ -551,7 +562,8 @@ class HelperWindowSideTests(_Tmp):
     def test_window_never_sends_a_malformed_order(self):
         with self._fake_elevation(), self.assertRaises(helper.OrderError):
             helper.run({"v": 1, "order": "delete", "paths": ["relativa"]})
-        self.assertIn("--auxiliar", helper.describe(helper.clean_order(["temp_win"])))
+        with self._fake_elevation():
+            self.assertIn("--auxiliar", helper.describe(helper.clean_order(["temp_win"])))
 
 
 class RecycleAndAnalyzeTests(_Tmp):
