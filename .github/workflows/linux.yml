@@ -206,22 +206,35 @@ jobs:
           grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": true'
           if grep -q '"accion": "error_' "$REGISTRO"; then echo "hay errores en el registro"; exit 1; fi
 
+      # Una copia manipulada se rechaza ANTES de cargar nada de la aplicación: no llega a
+      # anotar nada en el registro. Se comprueba por el código de salida (2) y por el aviso.
+      # Se lanza sin pantalla para que el aviso salga por la consola y no en una ventana.
       - name: Un archivo modificado impide el arranque
         working-directory: SuperLimpio
         run: |
           rm -f "$REGISTRO"
           cp app/superlimpio/util.py "$RUNNER_TEMP/util.py"
           echo "# cambio" >> app/superlimpio/util.py
-          timeout 15 xvfb-run -a ./superlimpio.sh || true
-          cat "$REGISTRO"
-          grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": false'
+          codigo=0; env -u DISPLAY -u WAYLAND_DISPLAY ./superlimpio.sh > "$RUNNER_TEMP/salida.txt" 2>&1 || codigo=$?
+          cat "$RUNNER_TEMP/salida.txt"
+          test "$codigo" -eq 2
+          grep -q "has been modified" "$RUNNER_TEMP/salida.txt"
+          test ! -e "$REGISTRO"
           cp "$RUNNER_TEMP/util.py" app/superlimpio/util.py
 
       - name: Un archivo añadido impide el arranque
         working-directory: SuperLimpio
         run: |
-          rm -f "$REGISTRO"
-          echo "# añadido" > app/superlimpio/sitecustomize.py
-          timeout 15 xvfb-run -a ./superlimpio.sh || true
-          cat "$REGISTRO"
-          grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": false'
+          echo "open('$RUNNER_TEMP/codigo_ajeno', 'w')" > app/superlimpio/sitecustomize.py
+          codigo=0; env -u DISPLAY -u WAYLAND_DISPLAY ./superlimpio.sh > "$RUNNER_TEMP/salida.txt" 2>&1 || codigo=$?
+          cat "$RUNNER_TEMP/salida.txt"
+          test "$codigo" -eq 2
+          grep -q "has been modified" "$RUNNER_TEMP/salida.txt"
+          test ! -e "$RUNNER_TEMP/codigo_ajeno"
+          rm app/superlimpio/sitecustomize.py
+
+      - name: Restaurada, vuelve a arrancar
+        working-directory: SuperLimpio
+        run: |
+          timeout 20 xvfb-run -a sh -c 'openbox >/dev/null 2>&1 & sleep 1; ./superlimpio.sh' || test $? -eq 124
+          grep '"accion": "integridad"' "$REGISTRO" | grep -q '"ok": true'
