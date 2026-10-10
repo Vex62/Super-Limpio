@@ -33,13 +33,16 @@ import hashlib
 import json
 import os
 
-from .util import APP_ROOT
+# Este módulo no importa NADA del resto de la aplicación: main.py lo carga por su ruta y lo
+# ejecuta antes que cualquier otro, cuando todavía no se sabe si los demás son los originales.
+# Carpeta raíz de la app portable (la que contiene SuperLimpio.exe): tres niveles por encima.
+APP_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
 # Clave pública Ed25519 (64 hex = 32 bytes) de quien firma las distribuciones.
 # La escribe tools\\firmar.py --generar-claves. Vacía = sin firmar (modo desarrollo).
 PUBLIC_KEY_HEX = "07f10f84d68944e0b67495ab9b925125e0902a1b0d95578dfc4da6bce79536ec"
 
-_INTEGRITY_DIR = os.path.join(str(APP_ROOT), "app", "superlimpio", "_integrity")
+_INTEGRITY_DIR = os.path.join(APP_ROOT, "app", "superlimpio", "_integrity")
 MANIFEST_PATH = os.path.join(_INTEGRITY_DIR, "manifest.json")
 SIGNATURE_PATH = os.path.join(_INTEGRITY_DIR, "manifest.sig")
 
@@ -215,9 +218,13 @@ class IntegrityResult:
 
 
 def verify_distribution() -> IntegrityResult:
-    """Comprueba la distribución. Sin manifiesto o sin clave pública => modo desarrollo (no bloquea)."""
+    """Comprueba la distribución. Sin manifiesto o sin clave pública => modo desarrollo (no bloquea).
+
+    El detalle va en español e inglés porque esto se ejecuta antes de saber el idioma: no
+    puede usar ningún otro módulo de la aplicación (aún no se sabe si son los originales)."""
     if not PUBLIC_KEY_HEX or not (os.path.isfile(MANIFEST_PATH) and os.path.isfile(SIGNATURE_PATH)):
         return IntegrityResult(True, enforced=False)
+    bad_signature = "la firma de integridad no es válida / the integrity signature is not valid"
     try:
         with open(MANIFEST_PATH, "rb") as fh:
             manifest_bytes = fh.read(_MAX_MANIFEST + 1)
@@ -227,27 +234,27 @@ def verify_distribution() -> IntegrityResult:
         if len(manifest_bytes) > _MAX_MANIFEST:
             raise ValueError("manifiesto demasiado grande")
     except (OSError, ValueError):
-        from . import i18n
-        return IntegrityResult(False, enforced=True, detail=i18n.t("integrity.bad_signature"))
+        return IntegrityResult(False, enforced=True, detail=bad_signature)
 
-    from . import i18n
     if not ed25519_verify(public, manifest_bytes, signature):
-        return IntegrityResult(False, enforced=True, detail=i18n.t("integrity.bad_signature"))
+        return IntegrityResult(False, enforced=True, detail=bad_signature)
 
     manifest = json.loads(manifest_bytes.decode("utf-8"))
     listed = manifest.get("files", {})
     changed = 0
     for rel, expected in listed.items():
-        full = os.path.join(str(APP_ROOT), rel)
+        full = os.path.join(APP_ROOT, rel)
         try:
             if not os.path.isfile(full) or _sha256(full) != expected:
                 changed += 1
         except OSError:
             changed += 1
     if changed:
-        return IntegrityResult(False, enforced=True, detail=i18n.t("integrity.changed_files", n=changed))
-    extra = unexpected_files(str(APP_ROOT), set(listed))
+        return IntegrityResult(False, enforced=True,
+                               detail=f"{changed} archivos modificados o que faltan / modified or missing files")
+    extra = unexpected_files(APP_ROOT, set(listed))
     if extra:
         return IntegrityResult(False, enforced=True,
-                               detail=i18n.t("integrity.extra_files", n=len(extra), first=extra[0]))
+                               detail=f"{len(extra)} archivos que no son de la aplicación / files that are not "
+                                      f"part of the application ({extra[0]})")
     return IntegrityResult(True, enforced=True)

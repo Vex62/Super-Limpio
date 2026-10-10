@@ -60,20 +60,56 @@ def _show_error(title: str, body: str) -> None:
         print(body)
 
 
-def _check_integrity(interactive: bool = True) -> bool:
-    """Verifica la firma de la distribución. Devuelve False si está manipulada."""
-    from superlimpio import i18n, integrity
-    from superlimpio.safety import log_action
+def _load_integrity():
+    """Carga superlimpio/integrity por su ruta exacta, sin pasar por el sistema de imports.
 
-    result = integrity.verify_distribution()
-    if result.ok:
-        if result.enforced:
-            log_action("integridad", "", "ok")
-        return True
-    log_action("integridad", "", result.detail, ok=False)
-    if interactive:
-        _show_error(i18n.t("integrity.tampered_title"), i18n.t("integrity.tampered_body", detail=result.detail))
-    return False
+    Es lo primero que se ejecuta: hasta que termina no se importa ningún otro módulo de la
+    aplicación, porque un archivo añadido (un .py junto a un .pyc firmado) se cargaría en
+    lugar del original. Una copia publicada trae el módulo como .pyc (Windows) o como .py
+    (Linux), nunca los dos: si están los dos, alguien ha añadido uno."""
+    import importlib.machinery
+    import importlib.util
+
+    base = os.path.join(_APP_DIR, "superlimpio", "integrity")
+    compiled, source = base + ".pyc", base + ".py"
+    if os.path.isfile(compiled) and os.path.isfile(source):
+        return None
+    if os.path.isfile(compiled):
+        loader = importlib.machinery.SourcelessFileLoader("_superlimpio_integrity", compiled)
+    else:
+        loader = importlib.machinery.SourceFileLoader("_superlimpio_integrity", source)
+    spec = importlib.util.spec_from_loader("_superlimpio_integrity", loader)
+    module = importlib.util.module_from_spec(spec)
+    # Sin esto, cargar el .py dejaría su .pyc en __pycache__, dentro de la carpeta que se comprueba.
+    previous, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+    try:
+        loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous
+    return module
+
+
+_TAMPERED = ("Esta copia de Super Limpio ha sido modificada y no se va a ejecutar.\n"
+             "This copy of Super Limpio has been modified and will not run.\n\n{detail}\n\n"
+             "Descarga de nuevo la aplicación desde su página oficial.\n"
+             "Download the application again from its official page.")
+
+
+def _check_integrity(interactive: bool = True) -> tuple[bool, bool, str]:
+    """Verifica la firma de la distribución ANTES de importar nada de la aplicación.
+    Devuelve (correcta, se exigía firma, detalle). El aviso es fijo y bilingüe a propósito:
+    con la copia manipulada no se carga ni el módulo de textos."""
+    integrity = _load_integrity()
+    if integrity is None:
+        ok, enforced, detail = False, True, "integrity.py + integrity.pyc"
+    else:
+        result = integrity.verify_distribution()
+        ok, enforced, detail = result.ok, result.enforced, result.detail
+    if not ok and interactive:
+        _show_error("Super Limpio", _TAMPERED.format(detail=detail))
+    elif not ok:
+        print(_TAMPERED.format(detail=detail))
+    return ok, enforced, detail
 
 
 def main() -> int:
@@ -82,15 +118,21 @@ def main() -> int:
         return 1
     _utf8_console()
 
+    # Lo primero, antes de importar nada de la aplicación: ¿es la copia que se publicó?
+    helper_mode = "--auxiliar" in sys.argv[1:]
+    intact, signed, detail = _check_integrity(interactive=not helper_mode)
+    if not intact:
+        return 2   # ni la ventana ni el auxiliar elevado hacen nada con una copia manipulada
+
     from superlimpio import plat
     plat.prepare_process()
     _setup_language()
     from superlimpio import i18n
+    from superlimpio.safety import log_action as _log
+    if signed:
+        _log("integridad", "", "ok")
 
-    if "--auxiliar" in sys.argv[1:]:
-        # Auxiliar elevado: sin ventana. Si la copia está manipulada, no hace nada.
-        if not _check_integrity(interactive=False):
-            return 2
+    if helper_mode:
         from superlimpio import helper
         return helper.main(sys.argv[1:])
 
@@ -99,9 +141,6 @@ def main() -> int:
     except ImportError:
         print(i18n.t("main.need_tkinter"))
         return 1
-
-    if not _check_integrity():
-        return 2
 
     if not plat.acquire_instance_lock():
         _show_error(i18n.t("app.already_open.title"), i18n.t("app.already_open.body"))

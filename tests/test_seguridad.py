@@ -654,6 +654,74 @@ class IntegrityTests(_Tmp):
         self.assertEqual(integrity.unexpected_files(self.tmp, listed),
                          ["app/sitecustomize.py", "app/superlimpio/safety.py", "dwmapi.dll"])
 
+    def _signed_copy(self):
+        """Una copia de la aplicación firmada con una clave de prueba, como un paquete publicado."""
+        import re
+        import shutil
+        stage = os.path.join(self.tmp, "copia")
+        shutil.copytree(APP_ROOT / "app", os.path.join(stage, "app"),
+                        ignore=shutil.ignore_patterns("__pycache__", "_integrity", "*.pyc"))
+        secret = bytes(range(32))
+        module = os.path.join(stage, "app", "superlimpio", "integrity.py")
+        with open(module, encoding="utf-8") as fh:
+            source = fh.read()
+        with open(module, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(re.sub(r'PUBLIC_KEY_HEX = "[0-9a-f]*"',
+                            f'PUBLIC_KEY_HEX = "{integrity.ed25519_publickey(secret).hex()}"', source, count=1))
+        rel = sorted(os.path.relpath(os.path.join(folder, name), stage).replace(os.sep, "/")
+                     for folder, _dirs, names in os.walk(os.path.join(stage, "app")) for name in names)
+        manifest = integrity.build_manifest(integrity.hash_tree(stage, rel), "prueba")
+        _write(os.path.join(stage, "app", "superlimpio", "_integrity", "manifest.json"))
+        with open(os.path.join(stage, "app", "superlimpio", "_integrity", "manifest.json"), "wb") as fh:
+            fh.write(manifest)
+        with open(os.path.join(stage, "app", "superlimpio", "_integrity", "manifest.sig"), "w", encoding="ascii") as fh:
+            fh.write(integrity.ed25519_sign(secret, manifest).hex())
+        return stage
+
+    def _check(self, stage):
+        """Lo que hace main.py al arrancar esa copia, en un proceso aparte: (código, salida)."""
+        import subprocess
+        main_py = os.path.join(stage, "app", "main.py")
+        code = ("import sys, runpy; "
+                f"m = runpy.run_path({main_py!r}, run_name='no_main'); "
+                "ok, enforced, detail = m['_check_integrity'](interactive=False); "
+                "print('RESULTADO', ok, enforced); sys.exit(0 if ok else 2)")
+        run = subprocess.run([sys.executable, "-I", "-B", "-c", code], capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=120)
+        return run.returncode, run.stdout
+
+    def test_tampered_copy_runs_none_of_its_code(self):
+        stage = self._signed_copy()
+        code, out = self._check(stage)
+        self.assertEqual((code, "RESULTADO True True" in out), (0, True), out)      # intacta: firma exigida y válida
+        marker = os.path.join(self.tmp, "codigo_ajeno_ejecutado")
+        payload = f"open(r'{marker}', 'w').close()\n"
+        pkg = os.path.join(stage, "app", "superlimpio")
+
+        # 1) un módulo modificado: el primero que cargaría la aplicación
+        with open(os.path.join(pkg, "__init__.py"), "a", encoding="utf-8") as fh:
+            fh.write(payload)
+        code, out = self._check(stage)
+        self.assertEqual(code, 2, out)
+        self.assertFalse(os.path.exists(marker))          # se rechaza sin haber ejecutado nada de la copia
+
+        # 2) restaurado, y ahora un archivo AÑADIDO que el intérprete cargaría solo
+        with open(os.path.join(pkg, "__init__.py"), encoding="utf-8") as fh:
+            original = fh.read().replace(payload, "")
+        with open(os.path.join(pkg, "__init__.py"), "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(original)
+        self.assertEqual(self._check(stage)[0], 0)
+        with open(os.path.join(stage, "app", "sitecustomize.py"), "w", encoding="utf-8") as fh:
+            fh.write(payload)
+        code, out = self._check(stage)
+        self.assertEqual(code, 2, out)
+        self.assertFalse(os.path.exists(marker))
+        os.remove(os.path.join(stage, "app", "sitecustomize.py"))
+
+        # 3) el verificador duplicado (.py y .pyc a la vez) tampoco cuela
+        _write(os.path.join(pkg, "integrity.pyc"))
+        self.assertEqual(self._check(stage)[0], 2)
+
     def test_signature_with_s_out_of_range_is_rejected(self):
         secret = bytes(range(32))
         public = integrity.ed25519_publickey(secret)
