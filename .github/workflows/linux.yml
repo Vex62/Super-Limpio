@@ -165,10 +165,13 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: write   # solo para poder leer un release que aún es borrador; no se escribe nada
-    env:
-      XDG_STATE_HOME: ${{ runner.temp }}/estado
-      REGISTRO: ${{ runner.temp }}/estado/superlimpio/logs/acciones.log
     steps:
+      - name: Carpeta de estado de la prueba
+        # (el contexto «runner» no existe al definir variables del trabajo: se fijan aquí)
+        run: |
+          echo "XDG_STATE_HOME=$RUNNER_TEMP/estado" >> "$GITHUB_ENV"
+          echo "REGISTRO=$RUNNER_TEMP/estado/superlimpio/logs/acciones.log" >> "$GITHUB_ENV"
+
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
