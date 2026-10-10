@@ -74,7 +74,7 @@ FALLBACK_GLYPHS = {
 
 
 class Fonts:
-    def __init__(self, root: tk.Misc, zoom: float = 1.0):
+    def __init__(self, root: tk.Misc, zoom: float = 1.0) -> None:
         fams = set(tkfont.families(root))
 
         def pick(candidates: tuple[str, ...], default: str) -> str:

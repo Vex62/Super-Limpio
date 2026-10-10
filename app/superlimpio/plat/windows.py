@@ -16,8 +16,10 @@ import os
 import re
 import string
 import sys
+from typing import Any
 
 from .. import i18n
+from .windows_know import expand as _expand, split_command
 from .common import (CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT, PRIORITY_ABOVE_NORMAL,  # noqa: F401
                      PRIORITY_BELOW_NORMAL, PRIORITY_IDLE, PRIORITY_NORMAL, MemoryStatus, PerfInfo,
                      RawProcess, WindowInfo)
@@ -29,10 +31,19 @@ if IS_WINDOWS:
     import ctypes
     from ctypes import wintypes
 
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    psapi = ctypes.WinDLL("psapi", use_last_error=True)
-    shell32 = ctypes.WinDLL("shell32", use_last_error=True)
-    user32 = ctypes.WinDLL("user32", use_last_error=True)
+    _LOAD_LIBRARY_SEARCH_SYSTEM32 = 0x00000800
+
+    def system_dll(name: str, use_last_error: bool = False) -> ctypes.WinDLL:
+        """Carga una DLL de Windows SOLO desde System32. Por nombre a secas, Windows la
+        buscaría antes en la carpeta de la aplicación, donde cualquiera podría dejar una
+        copia falsa (dwmapi.dll, bcrypt.dll…)."""
+        return ctypes.WinDLL(name, use_last_error=use_last_error, winmode=_LOAD_LIBRARY_SEARCH_SYSTEM32)
+
+    kernel32 = system_dll("kernel32", use_last_error=True)
+    psapi = system_dll("psapi", use_last_error=True)
+    shell32 = system_dll("shell32", use_last_error=True)
+    user32 = system_dll("user32", use_last_error=True)
+    ole32 = system_dll("ole32")
 
     # ---------------------------------------------------------------- memoria
     class MEMORYSTATUSEX(ctypes.Structure):
@@ -109,6 +120,29 @@ if IS_WINDOWS:
             ("i64NumItems", ctypes.c_longlong),
         ]
 
+    class GUID(ctypes.Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                    ("Data4", ctypes.c_ubyte * 8)]
+
+    class SHELLEXECUTEINFOW(ctypes.Structure):
+        _fields_ = [
+            ("cbSize", wintypes.DWORD),
+            ("fMask", wintypes.ULONG),
+            ("hwnd", wintypes.HWND),
+            ("lpVerb", wintypes.LPCWSTR),
+            ("lpFile", wintypes.LPCWSTR),
+            ("lpParameters", wintypes.LPCWSTR),
+            ("lpDirectory", wintypes.LPCWSTR),
+            ("nShow", ctypes.c_int),
+            ("hInstApp", wintypes.HINSTANCE),
+            ("lpIDList", wintypes.LPVOID),
+            ("lpClass", wintypes.LPCWSTR),
+            ("hkeyClass", wintypes.HKEY),
+            ("dwHotKey", wintypes.DWORD),
+            ("hIconOrMonitor", wintypes.HANDLE),
+            ("hProcess", wintypes.HANDLE),
+        ]
+
     class SHFILEOPSTRUCTW(ctypes.Structure):
         _fields_ = [
             ("hwnd", wintypes.HWND),
@@ -141,6 +175,8 @@ if IS_WINDOWS:
     kernel32.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     kernel32.GetProcessHandleCount.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    _SetProcessInformation: Any
+    _dwmapi: Any
     try:  # Windows 8+; el modo de eficiencia (EcoQoS) existe desde Windows 10 1709
         _SetProcessInformation = kernel32.SetProcessInformation
         _SetProcessInformation.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
@@ -161,8 +197,25 @@ if IS_WINDOWS:
     user32.FindWindowExW.restype = wintypes.HWND
     user32.FindWindowExW.argtypes = [wintypes.HWND, wintypes.HWND, wintypes.LPCWSTR, wintypes.LPCWSTR]
     user32.PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM]
+    kernel32.GetSystemDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+    kernel32.GetWindowsDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+    kernel32.GetLogicalDrives.restype = wintypes.DWORD
+    kernel32.GetLogicalDrives.argtypes = []
+    kernel32.CreateMutexW.restype = wintypes.HANDLE
+    kernel32.CreateMutexW.argtypes = [wintypes.LPVOID, wintypes.BOOL, wintypes.LPCWSTR]
+    kernel32.WaitForSingleObject.restype = wintypes.DWORD
+    kernel32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    shell32.IsUserAnAdmin.restype = wintypes.BOOL
+    shell32.IsUserAnAdmin.argtypes = []
+    shell32.SHGetKnownFolderPath.restype = ctypes.c_long
+    shell32.SHGetKnownFolderPath.argtypes = [ctypes.POINTER(GUID), wintypes.DWORD, wintypes.HANDLE,
+                                             ctypes.POINTER(ctypes.c_void_p)]
+    shell32.ShellExecuteExW.restype = wintypes.BOOL
+    shell32.ShellExecuteExW.argtypes = [ctypes.POINTER(SHELLEXECUTEINFOW)]
+    ole32.CoTaskMemFree.restype = None
+    ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
     try:
-        _dwmapi = ctypes.WinDLL("dwmapi")
+        _dwmapi = system_dll("dwmapi")
         _dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
         _dwmapi.DwmGetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p,
                                                   wintypes.DWORD]
@@ -185,6 +238,114 @@ if IS_WINDOWS:
     _STILL_ACTIVE = 259
     _PROCESS_POWER_THROTTLING = 4            # clase ProcessPowerThrottling
     _POWER_THROTTLING_EXECUTION_SPEED = 0x1
+
+
+# =========================================================================
+# Carpetas del sistema y del usuario: se le preguntan a Windows, no al entorno
+# =========================================================================
+
+_FOLDER_LOCAL_APPDATA = "F1B32785-6FBA-4FCF-9D55-7B8E7F157091"
+_FOLDER_ROAMING_APPDATA = "3EB685DB-65F9-4CF6-A03A-E3EF65729F3D"
+_FOLDER_PROFILE = "5E6C858F-0E22-4760-9AFE-EA3317B67173"
+_FOLDER_PROGRAM_DATA = "62AB5D82-FDC1-4DC3-A9DD-070D1D495D97"
+
+
+def _known_folder(folder_id: str, env: str) -> str:
+    """Carpeta conocida de Windows (SHGetKnownFolderPath). Una variable del entorno la puede
+    cambiar cualquier programa; esto es lo que Windows tiene anotado. Si la llamada falla
+    (o fuera de Windows, en los tests), se usa la variable."""
+    if IS_WINDOWS:
+        import uuid
+        guid = GUID.from_buffer_copy(uuid.UUID(folder_id).bytes_le)
+        out = ctypes.c_void_p()
+        try:
+            if shell32.SHGetKnownFolderPath(ctypes.byref(guid), 0, None, ctypes.byref(out)) == 0 and out.value:
+                return ctypes.wstring_at(out.value)
+        except OSError:
+            pass   # se cae a la variable del entorno
+        finally:
+            if out.value:
+                ole32.CoTaskMemFree(out)
+    value = os.environ.get(env, "")
+    return ntpath.normpath(value) if value and ntpath.isabs(value) and ntpath.splitdrive(value)[0] else ""
+
+
+def _api_dir(getter_name: str, fallback: str) -> str:
+    if IS_WINDOWS:
+        buf = ctypes.create_unicode_buffer(32768)
+        try:
+            if getattr(kernel32, getter_name)(buf, len(buf)):
+                return buf.value
+        except OSError:
+            pass   # se cae al valor por defecto
+    return fallback
+
+
+def windows_dir() -> str:
+    return _api_dir("GetWindowsDirectoryW", os.environ.get("WINDIR") or r"C:\Windows")
+
+
+def system_dir() -> str:
+    return _api_dir("GetSystemDirectoryW", ntpath.join(os.environ.get("WINDIR") or r"C:\Windows", "System32"))
+
+
+def system_exe(name: str) -> str:
+    """Ruta completa de un programa de Windows (System32). Nunca se lanza por su nombre a
+    secas: Windows lo buscaría antes en la carpeta actual y en el PATH."""
+    return ntpath.join(system_dir(), name)
+
+
+def _explorer() -> str:
+    return ntpath.join(windows_dir(), "explorer.exe")
+
+
+def _user_dir() -> str:
+    base = _known_folder(_FOLDER_LOCAL_APPDATA, "LOCALAPPDATA")
+    return ntpath.join(base, "SuperLimpio") if base else ""
+
+
+def state_dir() -> str:
+    """Carpeta del usuario para el registro de acciones y las órdenes al auxiliar."""
+    return _user_dir()
+
+
+def config_dir() -> str:
+    """Carpeta del usuario para las preferencias cuando la de la aplicación no se puede escribir."""
+    return _user_dir()
+
+
+def prepare_process() -> None:
+    """Ajustes del proceso al arrancar: texto nítido en pantallas con escalado (125 %, 150 %...)."""
+    if not IS_WINDOWS:
+        return
+    try:
+        shcore = system_dll("shcore")
+        shcore.SetProcessDpiAwareness.argtypes = [ctypes.c_int]
+        shcore.SetProcessDpiAwareness(1)  # System DPI aware
+    except (AttributeError, OSError):
+        try:
+            user32.SetProcessDPIAware()
+        except (AttributeError, OSError):
+            pass   # Windows muy antiguo: la ventana se ve igual, algo menos nítida
+
+
+_instance_mutex = None
+
+
+def acquire_instance_lock() -> bool:
+    """True si esta es la única ventana de Super Limpio de la sesión. Dos a la vez podrían
+    lanzar dos limpiezas sobre las mismas carpetas."""
+    global _instance_mutex
+    if not IS_WINDOWS or _instance_mutex:
+        return True
+    handle = kernel32.CreateMutexW(None, False, "Local\\SuperLimpio.una-sola-ventana")
+    if not handle:
+        return True   # no se pudo comprobar: no se impide trabajar
+    if ctypes.get_last_error() == 183:   # ERROR_ALREADY_EXISTS
+        kernel32.CloseHandle(handle)
+        return False
+    _instance_mutex = handle   # se suelta solo al terminar el proceso
+    return True
 
 
 # =========================================================================
@@ -228,8 +389,8 @@ def memory_status() -> MemoryStatus | None:
 # Procesos
 # =========================================================================
 
-def _filetime_seconds(ft) -> float:
-    return ((ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10_000_000
+def _filetime_seconds(ft: Any) -> float:
+    return float(((ft.dwHighDateTime << 32) | ft.dwLowDateTime) / 10_000_000)
 
 
 def list_processes() -> list[RawProcess]:
@@ -283,7 +444,7 @@ def list_processes() -> list[RawProcess]:
     return procs
 
 
-def _open_verified(access: int, pid: int, create_time: float | None):
+def _open_verified(access: int, pid: int, create_time: float | None) -> Any:
     """Abre el proceso y comprueba que sigue siendo el mismo que se analizó.
 
     Windows reutiliza los PID: entre que el usuario confirma y se actúa, el proceso pudo
@@ -329,7 +490,7 @@ def process_alive(pid: int, create_time: float | None = None) -> bool:
         kernel32.CloseHandle(h)
 
 
-def _set_throttling(h, on: bool) -> bool:
+def _set_throttling(h: Any, on: bool) -> bool:
     """Activa EcoQoS (el «Modo de eficiencia» de Windows 11) o lo devuelve al sistema."""
     if _SetProcessInformation is None:
         return False
@@ -428,7 +589,7 @@ def list_windows() -> list[WindowInfo]:
     out: list[WindowInfo] = []
     buf = ctypes.create_unicode_buffer(512)
 
-    def visit(hwnd, _lparam):
+    def visit(hwnd: Any, _lparam: Any) -> Any:
         if not user32.IsWindowVisible(hwnd) or user32.GetWindow(hwnd, GW_OWNER):
             return True
         if user32.GetWindowLongW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW:
@@ -497,6 +658,8 @@ def shell_execute(file: str, params: str | None = None, verb: str = "open",
     salvo que el llamante lo indique explícitamente."""
     if not IS_WINDOWS:
         return False, i18n.t("common.windows_only")
+    if verb == "runas" and cwd is None:
+        cwd = system_dir()   # lo elevado nunca arranca en una carpeta que escriba el usuario
     rc = shell32.ShellExecuteW(None, verb, file, params, cwd, show)
     rc = rc or 0
     if rc > 32:
@@ -514,8 +677,8 @@ def open_in_explorer(path: str) -> tuple[bool, str]:
         return False, i18n.t("common.windows_only")
     path = os.path.normpath(path)
     if os.path.isdir(path):
-        return shell_execute("explorer.exe", f'"{path}"')
-    return shell_execute("explorer.exe", f'/select,"{path}"')
+        return shell_execute(_explorer(), f'"{path}"')
+    return shell_execute(_explorer(), f'/select,"{path}"')
 
 
 def recycle_bin_info(drive: str | None = None) -> tuple[int, int]:
@@ -565,28 +728,69 @@ def send_to_recycle_bin(paths: list[str]) -> tuple[bool, str]:
     return False, i18n.t("winapi.recycle_fail", rc=f"{rc:#x}")
 
 
-def admin_command(script: str) -> tuple[str, str]:
-    """(ejecutable, parámetros) con los que se reabre la aplicación elevada."""
+def reopen_program(path: str) -> tuple[bool, str]:
+    """Vuelve a abrir un programa que se cerró. Si esta ventana corre como administrador
+    se abre a través del Explorador, que lo lanza con los permisos normales del usuario:
+    un programa corriente no debe heredar los de administrador."""
+    if is_admin():
+        return shell_execute(_explorer(), f'"{path}"')
+    return shell_execute(path)
+
+
+def helper_command(script: str, request: str, digest: str) -> tuple[str, str]:
+    """(ejecutable, parámetros) con los que se lanza el auxiliar elevado para UNA orden.
+
+    La orden va en un archivo y su huella SHA-256 en la línea de comandos: el auxiliar solo
+    la acepta si coinciden. Con python/pythonw se añade «-I» (modo aislado) para que el
+    proceso elevado no haga caso a PYTHONPATH ni a los paquetes del usuario; SuperLimpio.exe
+    ya arranca siempre así."""
+    order = f'--auxiliar "{request}" --sha256 {digest}'
     exe = sys.executable
     if not ntpath.basename(exe).lower().startswith("python"):
-        return exe, ""  # SuperLimpio.exe ya sabe dónde está la aplicación
+        return exe, order   # SuperLimpio.exe ya sabe dónde está la aplicación
     if exe.lower().endswith("python.exe"):
         alt = exe[:-10] + "pythonw.exe"
         if os.path.exists(alt):
             exe = alt
-    return exe, f'"{script}"'
+    return exe, f'-I "{script}" {order}'
 
 
-def relaunch_as_admin(script: str) -> tuple[bool, str]:
-    """Vuelve a abrir la aplicación con elevación. Windows muestra el aviso UAC."""
-    exe, params = admin_command(script)
-    return shell_execute(exe, params, verb="runas")
+def run_elevated(exe: str, params: str, timeout: float = 3600.0) -> tuple[bool, str, int]:
+    """Lanza un programa con elevación (Windows muestra su aviso UAC), espera a que termine
+    y devuelve (se lanzó, mensaje, código de salida)."""
+    if not IS_WINDOWS:
+        return False, i18n.t("common.windows_only"), -1
+    SEE_MASK_NOCLOSEPROCESS, SEE_MASK_NOASYNC, SEE_MASK_FLAG_NO_UI = 0x40, 0x100, 0x400
+    info = SHELLEXECUTEINFOW()
+    info.cbSize = ctypes.sizeof(SHELLEXECUTEINFOW)
+    info.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_NOASYNC | SEE_MASK_FLAG_NO_UI
+    info.lpVerb = "runas"
+    info.lpFile = exe
+    info.lpParameters = params
+    info.lpDirectory = system_dir()
+    info.nShow = 1
+    if not shell32.ShellExecuteExW(ctypes.byref(info)):
+        err = ctypes.get_last_error()
+        if err == 1223:   # ERROR_CANCELLED: se contestó «No» al aviso UAC
+            return False, i18n.t("winapi.elevation_cancelled"), -1
+        return False, i18n.t("winapi.shellexec_code", rc=err), -1
+    if not info.hProcess:
+        return False, i18n.t("winapi.shellexec_code", rc=0), -1
+    try:
+        if kernel32.WaitForSingleObject(info.hProcess, int(timeout * 1000)) != 0:
+            return False, i18n.t("winapi.elevation_timeout"), -1
+        code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(info.hProcess, ctypes.byref(code)):
+            return False, i18n.t("winapi.shellexec_code", rc=ctypes.get_last_error()), -1
+        return True, i18n.t("winapi.launched"), int(code.value)
+    finally:
+        kernel32.CloseHandle(info.hProcess)
 
 
 def capabilities() -> dict[str, bool]:
     """Lo que esta plataforma sabe hacer; la interfaz esconde lo que no."""
     return {
-        "elevate": True,         # reabrirse como administrador
+        "elevate": True,         # hay un auxiliar que hace con elevación una orden concreta
         "trim": True,            # recortar la RAM de un proceso
         "boost": True,           # subir la prioridad del programa objetivo
         "throttle_undo": True,   # el modo de eficiencia se puede deshacer
@@ -599,6 +803,17 @@ def capabilities() -> dict[str, bool]:
 # Limpieza: ubicaciones conocidas de Windows
 # =========================================================================
 
+def _temp_dir(local_appdata: str) -> str:
+    """La carpeta temporal del usuario. %TEMP% es una variable que cualquiera puede cambiar:
+    solo se acepta si apunta a una carpeta llamada Temp o Tmp; si no, se usa la de Windows."""
+    raw = os.environ.get("TEMP") or os.environ.get("TMP") or ""
+    path = ntpath.normpath(os.path.expandvars(raw)) if raw else ""
+    if path and ntpath.splitdrive(path)[0] and ntpath.isabs(path) \
+            and ntpath.basename(path).lower() in ("temp", "tmp"):
+        return path
+    return ntpath.join(local_appdata, "Temp") if local_appdata else ""
+
+
 def _browser_profiles(base: str) -> list[str]:
     """Rutas de caché de navegadores Chromium para todos los perfiles."""
     out = []
@@ -609,21 +824,27 @@ def _browser_profiles(base: str) -> list[str]:
     return out
 
 
-def cleaner_categories() -> list[dict]:
+def cleaner_categories() -> list[dict[str, Any]]:
     """Categorías de limpieza. Cada una es una lista blanca cerrada de ubicaciones; «risk»
     es el valor de safety.Risk (1 bajo · 2 medio · 3 alto)."""
-    L = r"%LOCALAPPDATA%"
-    A = r"%APPDATA%"
-    U = r"%USERPROFILE%"
-    W = r"%WINDIR%"
-    P = r"%PROGRAMDATA%"
+    # Rutas absolutas pedidas a Windows. Si alguna no se conoce queda vacía, y las ubicaciones
+    # que dependen de ella se descartan (nunca se convierten en rutas relativas).
+    L = _known_folder(_FOLDER_LOCAL_APPDATA, "LOCALAPPDATA") or "?"
+    A = _known_folder(_FOLDER_ROAMING_APPDATA, "APPDATA") or "?"
+    U = _known_folder(_FOLDER_PROFILE, "USERPROFILE") or "?"
+    W = windows_dir() or "?"
+    P = _known_folder(_FOLDER_PROGRAM_DATA, "ProgramData") or "?"
+    T = _temp_dir("" if L == "?" else L) or "?"
 
-    def cat(cat_id: str, group: str, **kw) -> dict:
+    def cat(cat_id: str, group: str, **kw: Any) -> dict[str, Any]:
+        for key in ("dirs", "files"):
+            if key in kw:
+                kw[key] = [p for p in kw[key] if not p.startswith("?")]
         return {"id": cat_id, "group": group, **kw}
 
     return [
         # ----------------------------------------------------------- Windows
-        cat("temp_user", "Windows", dirs=[r"%TEMP%"], min_age_hours=24, risk=1),
+        cat("temp_user", "Windows", dirs=[T], min_age_hours=24, risk=1),
         cat("temp_win", "Windows", dirs=[rf"{W}\Temp"], min_age_hours=24, risk=2, admin=True),
         cat("thumbs", "Windows",
             files=[rf"{L}\Microsoft\Windows\Explorer\thumbcache_*.db",
@@ -681,11 +902,7 @@ def cleaner_categories() -> list[dict]:
 _APPROVED = r"Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved"
 
 
-def _expand(path: str) -> str:
-    return os.path.normpath(os.path.expanduser(os.path.expandvars(path)))
-
-
-def _approved_map(hive, sub: str, view: int) -> dict[str, bool]:
+def _approved_map(hive: Any, sub: str, view: int) -> dict[str, bool]:
     out: dict[str, bool] = {}
     try:
         with winreg.OpenKey(hive, f"{_APPROVED}\\{sub}", 0, winreg.KEY_READ | view) as k:
@@ -703,11 +920,11 @@ def _approved_map(hive, sub: str, view: int) -> dict[str, bool]:
     return out
 
 
-def startup_entries() -> list[dict]:
+def startup_entries() -> list[dict[str, Any]]:
     """Entradas de arranque: {name, command, location, enabled (None = una sola vez), exe}."""
     if not IS_WINDOWS:
         return []
-    items: list[dict] = []
+    items: list[dict[str, Any]] = []
     reg_sources = [
         (winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Run", 0,
          i18n.t("startup.src.hkcu_run"), "Run"),
@@ -748,11 +965,12 @@ def startup_entries() -> list[dict]:
     for folder, label, hive in folders:
         approved = _approved_map(hive, "StartupFolder", 0)
         try:
-            for entry in os.scandir(folder):
-                if entry.name.lower() == "desktop.ini":
-                    continue
-                items.append({"name": entry.name, "command": entry.path, "location": label,
-                              "exe": entry.path, "enabled": approved.get(entry.name.lower(), True)})
+            with os.scandir(folder) as entries:
+                for entry in entries:
+                    if entry.name.lower() == "desktop.ini":
+                        continue
+                    items.append({"name": entry.name, "command": entry.path, "location": label,
+                                  "exe": entry.path, "enabled": approved.get(entry.name.lower(), True)})
         except OSError:
             continue
     return items
@@ -760,7 +978,7 @@ def startup_entries() -> list[dict]:
 
 def open_startup_manager() -> tuple[bool, str]:
     """Abre el Administrador de tareas por la pestaña Inicio: la vía oficial y reversible."""
-    return shell_execute("taskmgr.exe", "/0 /startup")
+    return shell_execute(system_exe("taskmgr.exe"), "/0 /startup")
 
 
 # =========================================================================
@@ -770,7 +988,7 @@ def open_startup_manager() -> tuple[bool, str]:
 UNINSTALL_SUBKEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall"
 
 
-def _read_value(key, name: str):
+def _read_value(key: Any, name: str) -> Any:
     try:
         val, _typ = winreg.QueryValueEx(key, name)
         return val
@@ -778,7 +996,7 @@ def _read_value(key, name: str):
         return None
 
 
-def _fmt_install_date(raw) -> str:
+def _fmt_install_date(raw: Any) -> str:
     if not raw:
         return ""
     s = str(raw).strip()
@@ -790,7 +1008,7 @@ def _fmt_install_date(raw) -> str:
     return s
 
 
-def installed_programs() -> list[dict]:
+def installed_programs() -> list[dict[str, Any]]:
     """Programas instalados, como diccionarios con los campos de programs.Program."""
     if not IS_WINDOWS:
         return []
@@ -800,7 +1018,7 @@ def installed_programs() -> list[dict]:
         (winreg.HKEY_CURRENT_USER, 0, "user", "HKCU"),
     ]
     seen: set[tuple[str, str]] = set()
-    programs: list[dict] = []
+    programs: list[dict[str, Any]] = []
     for hive, view, scope, hive_name in sources:
         try:
             root = winreg.OpenKey(hive, UNINSTALL_SUBKEY, 0, winreg.KEY_READ | view)
@@ -856,46 +1074,30 @@ def installed_programs() -> list[dict]:
     return programs
 
 
-def split_command(cmd: str) -> tuple[str, str]:
-    """Separa «ejecutable» y «parámetros» de una UninstallString sin usar un shell.
 
-    Admite: "C:\\ruta con espacios\\unins000.exe" /SILENT
-            C:\\ruta con espacios\\uninstall.exe --flag   (sin comillas)
-            MsiExec.exe /I{GUID}
-    """
-    cmd = (cmd or "").strip()
-    if not cmd:
-        return "", ""
-    if cmd.startswith('"'):
-        end = cmd.find('"', 1)
-        if end == -1:
-            return cmd.strip('"'), ""
-        return _expand(cmd[1:end]) if "%" in cmd[1:end] else cmd[1:end], cmd[end + 1:].strip()
-    # Sin comillas: buscar el final del ejecutable (.exe/.cmd/.bat/.com)
-    m = re.match(r"^(.+?\.(?:exe|com|bat|cmd))(?=\s|$)(.*)$", cmd, re.IGNORECASE)
-    if m:
-        exe = m.group(1)
-        if "%" in exe:
-            exe = _expand(exe)
-        return exe, m.group(2).strip()
-    parts = cmd.split(None, 1)
-    return parts[0], parts[1] if len(parts) > 1 else ""
-
-
-def uninstall_command(p) -> tuple[str, str, list[str], bool]:
+def uninstall_command(p: Any) -> tuple[str, str, list[str], bool]:
     """(ejecutable, parámetros, avisos, crítico) para desinstalar con el desinstalador
     oficial del programa. «Crítico» = usa un intérprete de comandos."""
     warnings: list[str] = []
     critical = False
     if p.msi_code:
         # Windows Installer: /X = desinstalar (nunca /I, que reinstala/modifica)
-        exe, params = "msiexec.exe", f"/x {p.msi_code}"
+        exe, params = system_exe("msiexec.exe"), f"/x {p.msi_code}"
     else:
         exe, params = split_command(p.uninstall_string)
-        if os.path.basename(exe).lower() == "msiexec.exe":
+        if ntpath.basename(exe).lower() == "msiexec.exe":
             params = re.sub(r"(?i)/I(\s*\{)", r"/X\1", params)
-    base = os.path.basename(exe).lower()
-    if os.path.isabs(exe) and not os.path.exists(exe):
+    if exe and not ntpath.dirname(exe):
+        # Nombre a secas («MsiExec.exe», «rundll32»): se lanza el de System32, no el que
+        # aparezca antes en la carpeta actual o en el PATH.
+        named = exe if ntpath.splitext(exe)[1] else exe + ".exe"
+        if not IS_WINDOWS or os.path.isfile(system_exe(named)):
+            exe = system_exe(named)
+        else:
+            warnings.append(i18n.t("programs.warn.not_absolute", name=exe))
+            critical = True
+    base = ntpath.basename(exe).lower()
+    if ntpath.isabs(exe) and IS_WINDOWS and not os.path.exists(exe):
         warnings.append(i18n.t("programs.warn.missing"))
     if base in ("cmd.exe", "powershell.exe", "pwsh.exe", "wscript.exe", "cscript.exe", "rundll32.exe"):
         warnings.append(i18n.t("programs.warn.interpreter", base=base))
@@ -914,24 +1116,32 @@ def open_apps_settings() -> tuple[bool, str]:
 # Herramientas del sistema: comandos oficiales de Windows
 # =========================================================================
 
-def system_tools() -> list[dict]:
+def system_tools() -> list[dict[str, Any]]:
     """Herramientas que se ofrecen; «risk» es el valor de safety.Risk (hasta 4, crítico)."""
-    def tool(tool_id: str, exe: str, params: str = "", **kw) -> dict:
+    def tool(tool_id: str, exe: str, params: str = "", **kw: Any) -> dict[str, Any]:
         return {"id": tool_id, "exe": exe, "params": params, **kw}
+
+    # Todo por su ruta completa de System32: ni el intérprete de comandos ni lo que este
+    # lanza se buscan por nombre. «/k ""ruta" argumentos"» es la forma de cmd.exe de recibir
+    # un programa entre comillas con sus argumentos.
+    cmd, dism, powercfg = system_exe("cmd.exe"), system_exe("Dism.exe"), system_exe("powercfg.exe")
+
+    def console(program: str, args: str) -> str:
+        return f'/k ""{program}" {args}"'
 
     return [
         tool("storage", "ms-settings:storagesense"),
         tool("apps", "ms-settings:appsfeatures"),
-        tool("taskmgr_startup", "taskmgr.exe", "/0 /startup"),
-        tool("cleanmgr", "cleanmgr.exe"),
-        tool("restore", "SystemPropertiesProtection.exe"),
-        tool("analyze_sxs", "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /AnalyzeComponentStore",
+        tool("taskmgr_startup", system_exe("taskmgr.exe"), "/0 /startup"),
+        tool("cleanmgr", system_exe("cleanmgr.exe")),
+        tool("restore", system_exe("SystemPropertiesProtection.exe")),
+        tool("analyze_sxs", cmd, console(dism, "/Online /Cleanup-Image /AnalyzeComponentStore"),
              admin=True, risk=2, keep_console=True),
-        tool("clean_sxs", "cmd.exe", "/k Dism.exe /Online /Cleanup-Image /StartComponentCleanup",
+        tool("clean_sxs", cmd, console(dism, "/Online /Cleanup-Image /StartComponentCleanup"),
              admin=True, risk=4, keep_console=True),
-        tool("hiber_off", "cmd.exe", "/k powercfg.exe /hibernate off",
+        tool("hiber_off", cmd, console(powercfg, "/hibernate off"),
              admin=True, risk=4, keep_console=True),
-        tool("hiber_on", "cmd.exe", "/k powercfg.exe /hibernate on",
+        tool("hiber_on", cmd, console(powercfg, "/hibernate on"),
              admin=True, risk=3, keep_console=True),
     ]
 

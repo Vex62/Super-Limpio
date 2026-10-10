@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from enum import IntEnum
+from typing import Any
 
 from . import i18n, plat
 from .plat import know
@@ -59,7 +60,7 @@ def _a(level: int, what: str, risk: str, kind: str = "", system: bool = False) -
 _KNOWLEDGE_NAMES = ("SECURITY_PROCESSES", "SECURITY_PATHS", "PROTECTED_PROCESSES", "SENSITIVE_PROCESSES")
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name in _KNOWLEDGE_NAMES:
         return getattr(know, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
@@ -84,7 +85,7 @@ def assess_process(name: str, path: str = "", pid: int = -1, accessible: bool = 
 # Archivos y carpetas
 # =========================================================================
 
-_ENV: dict[str, dict] = {}
+_ENV: dict[str, dict[str, object]] = {}
 
 
 def real_env() -> dict[str, object]:
@@ -94,7 +95,7 @@ def real_env() -> dict[str, object]:
     return _ENV[know.name]
 
 
-def assess_path(path: str, env: dict | None = None, strict: bool = True) -> Assessment:
+def assess_path(path: str, env: dict[str, Any] | None = None, strict: bool = True) -> Assessment:
     """Qué es un archivo o carpeta y qué pasa si se borra.
 
     Con strict=True, lo que `safety.check_deletable` bloquea nunca sale como «normal».

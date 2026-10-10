@@ -11,6 +11,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
+from typing import Any
 
 from .. import archiver, i18n, plat
 from ..safety import log_action
@@ -19,7 +20,7 @@ from . import theme, winframe
 
 
 class CompressDialog(tk.Toplevel):
-    def __init__(self, parent: tk.Misc, app, paths: list[str]):
+    def __init__(self, parent: tk.Misc, app: Any, paths: list[str]) -> None:
         super().__init__(parent)
         self.app, self.paths = app, paths
         self.fonts, self.sf = app.fonts, app.sf
@@ -171,7 +172,7 @@ class CompressDialog(tk.Toplevel):
             return False
 
     # ------------------------------------------------------------------- opciones
-    def _collected(self, col) -> None:
+    def _collected(self, col: Any) -> None:
         if not self._alive():
             return
         self.collection = col
@@ -308,12 +309,12 @@ class CompressDialog(tk.Toplevel):
             "zip.progress.compress", done=fmt_size(p.done), total=fmt_size(p.total), out=fmt_size(p.written),
             ratio=ratio, speed=fmt_size(speed), elapsed=_duration(elapsed), eta=eta))
 
-    def _finished(self, opt: archiver.Options, res, exc) -> None:
+    def _finished(self, opt: archiver.Options, res: Any, exc: Any) -> None:
         self.running = False
         self.pw1.set("")
         self.pw2.set("")
         encrypted = bool(opt.password)
-        opt.password = ""
+        opt.password = ""   # nosec B105 - borra la contraseña de la memoria; no es una contraseña fija
         if isinstance(exc, archiver.Cancelled):
             log_action("comprimir", opt.dest, "cancelado", ok=False, formato=opt.fmt)
         elif exc is not None:

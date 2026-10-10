@@ -5,8 +5,9 @@ from __future__ import annotations
 import threading
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
-from ... import cleaner, i18n, plat
+from ... import cleaner, helper, i18n, plat
 from ...safety import Risk
 from ...util import fmt_count, fmt_size
 from .. import dialogs, theme
@@ -18,7 +19,7 @@ class CleanerView(View):
     icon = "clean"
     view_key = "cleaner"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("cleaner.title")
         self.subtitle = i18n.t("cleaner.subtitle")
@@ -104,7 +105,7 @@ class CleanerView(View):
         body.add(right, weight=1)
         self.persist_sash(body, "split", 330)
 
-    def _on_left_resize(self, canvas, win, width: int) -> None:
+    def _on_left_resize(self, canvas: Any, win: Any, width: int) -> None:
         canvas.itemconfigure(win, width=width)
         wrap = max(self.px(150), width - self.px(52))
         for lbl in self._desc_labels:
@@ -130,7 +131,7 @@ class CleanerView(View):
         self.pbar.configure(maximum=len(cats), value=0)
         self.hero_txt.configure(text=i18n.t("cleaner.analyzing"))
 
-        def work():
+        def work() -> None:
             for i, c in enumerate(cats):
                 est = cleaner.analyze(c, ev)
                 self.app.bg.call_in_ui(self._add_estimate, est, i + 1)
@@ -191,8 +192,10 @@ class CleanerView(View):
             msg += i18n.t("cleaner.run.close_apps", apps=", ".join(open_apps))
         if any(c.special == "recycle_bin" for c in cats):
             msg += i18n.t("cleaner.run.recycle_warn")
+        # La limpieza no pasa por la Papelera: es un borrado definitivo, así que además del
+        # botón hay que marcar «He revisado…» (riesgo alto como mínimo).
         if not dialogs.confirm(self, i18n.t("cleaner.run.title"), msg, "\n".join(lines),
-                               risk=max(risk, Risk.MEDIO), ok_text=i18n.t("cleaner.run.ok")):
+                               risk=max(risk, Risk.ALTO), ok_text=i18n.t("cleaner.run.ok")):
             return
         ev = self.cancel_ev = threading.Event()
         self._cleaning = True
@@ -200,9 +203,11 @@ class CleanerView(View):
         self.clean_btn.state(["disabled"])
         self.pbar.configure(maximum=len(cats), value=0)
 
-        def work():
+        def work() -> Any:
             results = []
             for i, c in enumerate(cats):
+                if ev.is_set():
+                    break
                 r = cleaner.clean(c, ev)
                 results.append(r)
                 self.app.bg.call_in_ui(self._cleaned, r, i + 1)
@@ -216,11 +221,51 @@ class CleanerView(View):
                                                   i18n.t("cleaner.cleaned", note=r.note)), tags=("done",))
         self.pbar.configure(value=i)
 
-    def _clean_done(self, results) -> None:
+    def _clean_done(self, results: Any) -> None:
         self._cleaning = False
         freed = sum(r.freed for r in results)
+        failed = sum(r.failed for r in results)
         self.hero_big.configure(text=fmt_size(freed))
-        self.hero_txt.configure(text=i18n.t("cleaner.done"))
+        # El resumen dice lo que pasó de verdad: si algo no se pudo borrar, se dice cuánto.
+        self.hero_txt.configure(text=i18n.t("cleaner.done_partial", n=fmt_count(failed)) if failed
+                                else i18n.t("cleaner.done"))
         self.an_btn.state(["!disabled"])
         self.status(i18n.t("cleaner.done_status", freed=fmt_size(freed),
                            bin=fmt_size(plat.recycle_bin_info()[0])))
+        pending = [r.category for r in results if r.category.admin and not r.category.special and r.failed]
+        if pending and not self.app.is_admin and helper.available():
+            self._offer_elevated(pending)
+
+    def _offer_elevated(self, cats: list[cleaner.Category]) -> None:
+        """Lo que quedó sin borrar por falta de permisos se puede encargar al auxiliar
+        elevado: hace solo esa limpieza, tras otra confirmación y el aviso de Windows (UAC)."""
+        lines = []
+        for c in cats:
+            lines.append(c.name)
+            est = self.estimates.get(c.id)
+            for loc in (est.locations[:6] if est else []):
+                lines.append(f"{'':>4}{loc}")
+        lines.append("")
+        lines.append(helper.describe(helper.clean_order([c.id for c in cats])))
+        if not dialogs.confirm(self, i18n.t("cleaner.elevated.title"), i18n.t("cleaner.elevated.body"),
+                               "\n".join(lines), risk=Risk.ALTO, ok_text=i18n.t("cleaner.elevated.ok")):
+            return
+        self._cleaning = True
+        self.an_btn.state(["disabled"])
+        self.hero_txt.configure(text=i18n.t("cleaner.elevated.running"))
+        order = helper.clean_order([c.id for c in cats])
+        self.app.bg.run(lambda: helper.run(order), on_done=self._elevated_done, on_error=self._failed)
+
+    def _elevated_done(self, result: dict[str, Any]) -> None:
+        self._cleaning = False
+        self.an_btn.state(["!disabled"])
+        if not result.get("launched") or result.get("rejected"):
+            self.hero_txt.configure(text=i18n.t("cleaner.elevated.not_done"))
+            dialogs.error(self, i18n.t("cleaner.elevated.title"), result.get("msg", ""))
+            return
+        freed, failed = int(result.get("freed", 0)), int(result.get("failed", 0))
+        text = i18n.t("cleaner.elevated.done", size=fmt_size(freed), n=fmt_count(int(result.get("deleted", 0))))
+        if failed:
+            text += " " + i18n.t("clean.skipped_note", n=fmt_count(failed))
+        self.hero_txt.configure(text=text)
+        self.status(text)

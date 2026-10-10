@@ -19,10 +19,10 @@ import stat as _stat
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable
+from collections.abc import Callable
 
-from . import i18n
-from .util import IS_WINDOWS
+from . import i18n, plat
+from .util import IS_WINDOWS, long_path
 from .plat import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
 
 # Marcador interno para los archivos sin extensión (se traduce al mostrarlo)
@@ -32,6 +32,28 @@ FILES_KEPT_PER_DIR = 60     # archivos individuales que se muestran por carpeta
 ALWAYS_KEEP = 64 * 1024 * 1024  # además, se guarda siempre cualquier archivo >= 64 MB
 TOP_FILES = 500             # ranking global de archivos más grandes
 MAX_WORKERS = 8             # carpetas leídas a la vez (más hilos no aporta nada)
+MAX_DEPTH = 512             # niveles de carpetas: más allá no se sigue (se cuenta como error)
+SPARSE_AT = 64 * 1024       # a partir de aquí se mira si el archivo ocupa menos de lo que dice
+
+
+def _disk_size(st: os.stat_result) -> int:
+    """Bytes que el archivo ocupa de verdad. Un archivo disperso (la imagen de una máquina
+    virtual, por ejemplo) declara un tamaño que en disco no gasta: en Linux se sabe por
+    los bloques que tiene asignados."""
+    size = st.st_size
+    blocks: int | None = getattr(st, "st_blocks", None)
+    if blocks is not None and size >= SPARSE_AT and blocks * 512 < size:
+        return blocks * 512
+    return size
+
+
+def refuse_virtual(path: str) -> None:
+    """/proc, /sys, /dev y /run no son discos: sus «archivos» declaran tamaños inventados
+    y no hay nada que limpiar. No se analizan."""
+    real = os.path.realpath(path)
+    for virtual in getattr(plat.native_know, "VIRTUAL_DIRS", ()):
+        if real == virtual or real.startswith(virtual + "/"):
+            raise OSError(i18n.t("scanner.virtual_fs", path=virtual))
 
 
 class DirNode:
@@ -39,7 +61,7 @@ class DirNode:
                  "children", "top_files", "small_files_count", "small_files_size",
                  "cloud_size", "errors", "done")
 
-    def __init__(self, name: str, path: str, parent: "DirNode | None"):
+    def __init__(self, name: str, path: str, parent: DirNode | None) -> None:
         self.name = name
         self.path = path
         self.parent = parent
@@ -80,9 +102,10 @@ class ScanResult:
     cancelled: bool = False
     skipped_links: int = 0
     error_samples: list[str] = field(default_factory=list)
+    skipped_mounts: int = 0     # otros discos montados dentro de la carpeta: no se cruzan
 
 
-def _is_link_or_junction(entry: os.DirEntry) -> bool:
+def _is_link_or_junction(entry: os.DirEntry[str]) -> bool:
     try:
         if entry.is_symlink():
             return True
@@ -97,14 +120,20 @@ def _is_link_or_junction(entry: os.DirEntry) -> bool:
 class _Worker:
     """Estado propio de cada hilo: se fusiona al final, sin bloqueos por archivo."""
 
-    __slots__ = ("top_heap", "by_ext", "errors", "skipped_links", "error_samples")
+    __slots__ = ("top_heap", "by_ext", "errors", "skipped_links", "error_samples", "skipped_mounts",
+                 "root_dev", "hardlinks", "hardlinks_lock")
 
-    def __init__(self) -> None:
+    def __init__(self, root_dev: int | None = None, hardlinks: set[tuple[int, int]] | None = None,
+                 hardlinks_lock: threading.Lock | None = None) -> None:
         self.top_heap: list[tuple[int, str, float]] = []
         self.by_ext: dict[str, list[int]] = {}
         self.errors = 0
         self.skipped_links = 0
         self.error_samples: list[str] = []
+        self.skipped_mounts = 0
+        self.root_dev = root_dev            # None = no se comprueba (Windows: ahí un montaje es un enlace)
+        self.hardlinks = hardlinks if hardlinks is not None else set()   # (disco, inodo) ya contados
+        self.hardlinks_lock = hardlinks_lock or threading.Lock()
 
 
 def _scan_dir(node: DirNode, w: _Worker) -> tuple[list[DirNode], int]:
@@ -113,27 +142,37 @@ def _scan_dir(node: DirNode, w: _Worker) -> tuple[list[DirNode], int]:
     local_heap: list[tuple[int, str, float]] = []
     top_heap, by_ext = w.top_heap, w.by_ext
     own = cloud = nfiles = small_n = small_sz = 0
+    base = node.path
     try:
-        with os.scandir(node.path) as it:
+        with os.scandir(long_path(base)) as it:
             for entry in it:
                 try:
                     # Una sola consulta por entrada: en Windows no cuesta ninguna llamada
                     # al sistema (son los datos que ya trae la enumeración de la carpeta).
                     st = entry.stat(follow_symlinks=False)
                     mode = st.st_mode
-                    attrs = st.st_file_attributes if IS_WINDOWS else 0
+                    attrs = getattr(st, "st_file_attributes", 0)
                     if attrs & FILE_ATTRIBUTE_REPARSE_POINT or _stat.S_ISLNK(mode):
                         w.skipped_links += 1
                         continue
                     name = entry.name
                     if _stat.S_ISDIR(mode):
-                        child = DirNode(name, entry.path, node)
+                        if w.root_dev is not None and st.st_dev != w.root_dev:
+                            w.skipped_mounts += 1   # otro disco (o /proc, /sys…): no se cruza
+                            continue
+                        child = DirNode(name, os.path.join(base, name), node)
                         child.mtime = st.st_mtime
                         children.append(child)
                         continue
                     if not _stat.S_ISREG(mode):
                         continue
-                    size = st.st_size
+                    if st.st_nlink > 1 and st.st_ino:   # enlaces duros: el mismo archivo cuenta una vez
+                        ident = (st.st_dev, st.st_ino)
+                        with w.hardlinks_lock:
+                            if ident in w.hardlinks:
+                                continue
+                            w.hardlinks.add(ident)
+                    size = _disk_size(st)
                     if attrs & CLOUD_ONLY_MASK:
                         cloud += size
                         size = 0
@@ -152,9 +191,9 @@ def _scan_dir(node: DirNode, w: _Worker) -> tuple[list[DirNode], int]:
                         small_n += 1
                     # Ranking global
                     if len(top_heap) < TOP_FILES:
-                        heapq.heappush(top_heap, (size, entry.path, mtime))
+                        heapq.heappush(top_heap, (size, os.path.join(base, name), mtime))
                     elif size > top_heap[0][0]:
-                        heapq.heapreplace(top_heap, (size, entry.path, mtime))
+                        heapq.heapreplace(top_heap, (size, os.path.join(base, name), mtime))
                     # Por tipo (mismo criterio que os.path.splitext, pero más barato)
                     dot = name.rfind(".")
                     if 0 < dot < len(name) - 1 and name[:dot].strip("."):
@@ -200,20 +239,28 @@ def scan(root_path: str,
     t0 = time.monotonic()
     root_path = os.path.abspath(root_path)
     name = os.path.basename(root_path.rstrip("\\/")) or root_path
+    refuse_virtual(root_path)
     root = DirNode(name, root_path, None)
+    root_dev: int | None = None
     try:
-        root.mtime = os.stat(root_path).st_mtime
+        st_root = os.stat(long_path(root_path))
+        root.mtime = st_root.st_mtime
+        if not IS_WINDOWS:   # en Windows scandir no da el disco de cada entrada (ahí vale 0)
+            root_dev = st_root.st_dev
     except OSError:
         pass
 
     n_workers = max(1, workers or min(MAX_WORKERS, os.cpu_count() or 2))
-    todo: "queue.SimpleQueue[DirNode | None]" = queue.SimpleQueue()
+    todo: queue.SimpleQueue[DirNode | None] = queue.SimpleQueue()
     todo.put(root)
     lock = threading.Lock()
     finished = threading.Event()
     prog = ScanProgress()
     pending = 1                      # carpetas encoladas o en curso
-    states = [_Worker() for _ in range(n_workers)]
+    hardlinks: set[tuple[int, int]] = set()
+    hardlinks_lock = threading.Lock()
+    states = [_Worker(root_dev, hardlinks, hardlinks_lock) for _ in range(n_workers)]
+    depth_of: dict[int, int] = {id(root): 0}   # límite de profundidad (lo consultan los hilos bajo `lock`)
 
     def work(w: _Worker) -> None:
         nonlocal pending
@@ -230,6 +277,13 @@ def scan(root_path: str,
                 w.errors += 1
             finally:
                 with lock:
+                    depth = depth_of.pop(id(node), 0)
+                    if depth >= MAX_DEPTH and children:
+                        w.errors += len(children)
+                        node.errors += len(children)
+                        node.children = children = []
+                    for child in children:
+                        depth_of[id(child)] = depth + 1
                     pending += len(children) - 1
                     if node.done:
                         prog.dirs += 1
@@ -293,7 +347,8 @@ def scan(root_path: str,
         prog.current = ""
         progress(prog)
     return ScanResult(root, top, by_ext, sum(w.errors for w in states), root.cloud_size, elapsed,
-                      cancelled, sum(w.skipped_links for w in states), error_samples[:50])
+                      cancelled, sum(w.skipped_links for w in states), error_samples[:50],
+                      sum(w.skipped_mounts for w in states))
 
 
 def quick_folder_size(path: str, cancel: threading.Event | None = None) -> tuple[int, int]:
@@ -301,23 +356,35 @@ def quick_folder_size(path: str, cancel: threading.Event | None = None) -> tuple
     total = 0
     count = 0
     stack = [path]
+    seen: set[tuple[int, int]] = set()
+    root_dev: int | None = None
+    if not IS_WINDOWS:
+        try:
+            root_dev = os.lstat(path).st_dev
+        except OSError:
+            return 0, 0
     while stack:
         if cancel is not None and cancel.is_set():
             break
         cur = stack.pop()
         try:
-            with os.scandir(cur) as it:
+            with os.scandir(long_path(cur)) as it:
                 for entry in it:
                     try:
                         st = entry.stat(follow_symlinks=False)
                         mode = st.st_mode
-                        attrs = st.st_file_attributes if IS_WINDOWS else 0
+                        attrs = getattr(st, "st_file_attributes", 0)
                         if attrs & FILE_ATTRIBUTE_REPARSE_POINT or _stat.S_ISLNK(mode):
                             continue
                         if _stat.S_ISDIR(mode):
-                            stack.append(entry.path)
-                        elif not attrs & CLOUD_ONLY_MASK:
-                            total += st.st_size
+                            if root_dev is None or st.st_dev == root_dev:
+                                stack.append(os.path.join(cur, entry.name))
+                        elif _stat.S_ISREG(mode) and not attrs & CLOUD_ONLY_MASK:
+                            if st.st_nlink > 1 and st.st_ino:
+                                if (st.st_dev, st.st_ino) in seen:
+                                    continue
+                                seen.add((st.st_dev, st.st_ino))
+                            total += _disk_size(st)
                             count += 1
                     except OSError:
                         continue

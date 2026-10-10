@@ -86,7 +86,11 @@ API = (
     "set_priority", "trim_working_set", "list_windows", "close_window",
     # abrir, ejecutar y papelera
     "shell_execute", "open_in_explorer", "recycle_bin_info", "empty_recycle_bin", "send_to_recycle_bin",
-    "admin_command", "relaunch_as_admin",
+    "reopen_program",
+    # elevación: solo un auxiliar mínimo, con una orden concreta (ver helper.py)
+    "helper_command", "run_elevated",
+    # el proceso y sus carpetas de usuario
+    "prepare_process", "acquire_instance_lock", "state_dir", "config_dir",
     # datos propios de cada sistema
     "cleaner_categories", "startup_entries", "open_startup_manager", "installed_programs",
     "uninstall_command", "open_apps_settings", "system_tools", "run_system_tool",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from ... import i18n
 from ...safety import Risk
@@ -17,7 +18,7 @@ class ToolsView(View):
     icon = "tools"
     view_key = "tools"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("tools.title")
         self.subtitle = i18n.t("tools.subtitle")

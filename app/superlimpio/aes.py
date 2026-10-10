@@ -10,15 +10,18 @@ las dos, `AVAILABLE` es False y esa opción se rechaza.
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 _WINDOWS = sys.platform == "win32"
 BLOCK = 16
 
-if _WINDOWS:
+if sys.platform == "win32":
     import ctypes
     from ctypes import wintypes
 
-    _bcrypt = ctypes.WinDLL("bcrypt")
+    from .plat.windows import system_dll
+
+    _bcrypt = system_dll("bcrypt")   # solo desde System32, nunca una copia junto a la aplicación
     _NTSTATUS = ctypes.c_long
     _bcrypt.BCryptOpenAlgorithmProvider.restype = _NTSTATUS
     _bcrypt.BCryptOpenAlgorithmProvider.argtypes = [
@@ -30,14 +33,16 @@ if _WINDOWS:
     _bcrypt.BCryptGenerateSymmetricKey.argtypes = [
         ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p), ctypes.c_void_p, wintypes.ULONG,
         ctypes.c_char_p, wintypes.ULONG, wintypes.ULONG]
-    _CRYPT_ARGS = [ctypes.c_void_p, ctypes.c_char_p, wintypes.ULONG, ctypes.c_void_p, ctypes.c_void_p,
+    _CRYPT_ARGS: list[Any] = [ctypes.c_void_p, ctypes.c_char_p, wintypes.ULONG, ctypes.c_void_p, ctypes.c_void_p,
                    wintypes.ULONG, ctypes.c_void_p, wintypes.ULONG, ctypes.POINTER(wintypes.ULONG),
                    wintypes.ULONG]
     _bcrypt.BCryptEncrypt.restype = _NTSTATUS
     _bcrypt.BCryptEncrypt.argtypes = _CRYPT_ARGS
     _bcrypt.BCryptDecrypt.restype = _NTSTATUS
     _bcrypt.BCryptDecrypt.argtypes = _CRYPT_ARGS
+    _bcrypt.BCryptDestroyKey.restype = _NTSTATUS
     _bcrypt.BCryptDestroyKey.argtypes = [ctypes.c_void_p]
+    _bcrypt.BCryptCloseAlgorithmProvider.restype = _NTSTATUS
     _bcrypt.BCryptCloseAlgorithmProvider.argtypes = [ctypes.c_void_p, wintypes.ULONG]
 
 
@@ -54,58 +59,59 @@ def _check_args(key: bytes, mode: str, iv: bytes | None) -> None:
         raise ValueError("CBC needs a 16-byte IV")
 
 
-class _CngAes:
-    """AES de Windows (CNG)."""
+if sys.platform == "win32":
+    class _CngAes:
+        """AES de Windows (CNG)."""
 
-    def __init__(self, key: bytes, mode: str = "ECB", iv: bytes | None = None):
-        _check_args(key, mode, iv)
-        self._alg = ctypes.c_void_p()
-        self._key = ctypes.c_void_p()
-        self._check(_bcrypt.BCryptOpenAlgorithmProvider(ctypes.byref(self._alg), "AES", None, 0))
-        chaining = ctypes.create_unicode_buffer(f"ChainingMode{mode}")
-        self._check(_bcrypt.BCryptSetProperty(self._alg, "ChainingMode", chaining, ctypes.sizeof(chaining), 0))
-        self._check(_bcrypt.BCryptGenerateSymmetricKey(self._alg, ctypes.byref(self._key), None, 0,
-                                                       key, len(key), 0))
-        self._iv = ctypes.create_string_buffer(iv, BLOCK) if mode == "CBC" else None
+        def __init__(self, key: bytes, mode: str = "ECB", iv: bytes | None = None) -> None:
+            _check_args(key, mode, iv)
+            self._alg: Any = ctypes.c_void_p()
+            self._key: Any = ctypes.c_void_p()
+            self._check(_bcrypt.BCryptOpenAlgorithmProvider(ctypes.byref(self._alg), "AES", None, 0))
+            chaining = ctypes.create_unicode_buffer(f"ChainingMode{mode}")
+            self._check(_bcrypt.BCryptSetProperty(self._alg, "ChainingMode", chaining, ctypes.sizeof(chaining), 0))
+            self._check(_bcrypt.BCryptGenerateSymmetricKey(self._alg, ctypes.byref(self._key), None, 0,
+                                                           key, len(key), 0))
+            self._iv = ctypes.create_string_buffer(iv or b"", BLOCK) if mode == "CBC" else None
 
-    @staticmethod
-    def _check(status: int) -> None:
-        if status != 0:
-            raise AesError(f"Windows cryptography error {status & 0xFFFFFFFF:#010x}")
+        @staticmethod
+        def _check(status: int) -> None:
+            if status != 0:
+                raise AesError(f"Windows cryptography error {status & 0xFFFFFFFF:#010x}")
 
-    def _run(self, fn, data: bytes) -> bytes:
-        if len(data) % BLOCK:
-            raise ValueError("data must be a multiple of 16 bytes")
-        if not data:
-            return b""
-        out = ctypes.create_string_buffer(len(data))
-        done = wintypes.ULONG()
-        self._check(fn(self._key, data, len(data), None, self._iv, BLOCK if self._iv is not None else 0,
-                       out, len(data), ctypes.byref(done), 0))
-        return out.raw[:done.value]
+        def _run(self, fn: Any, data: bytes) -> bytes:
+            if len(data) % BLOCK:
+                raise ValueError("data must be a multiple of 16 bytes")
+            if not data:
+                return b""
+            out = ctypes.create_string_buffer(len(data))
+            done = wintypes.ULONG()
+            self._check(fn(self._key, data, len(data), None, self._iv, BLOCK if self._iv is not None else 0,
+                           out, len(data), ctypes.byref(done), 0))
+            return out.raw[:done.value]
 
-    def encrypt(self, data: bytes) -> bytes:
-        return self._run(_bcrypt.BCryptEncrypt, data)
+        def encrypt(self, data: bytes) -> bytes:
+            return self._run(_bcrypt.BCryptEncrypt, data)
 
-    def decrypt(self, data: bytes) -> bytes:
-        return self._run(_bcrypt.BCryptDecrypt, data)
+        def decrypt(self, data: bytes) -> bytes:
+            return self._run(_bcrypt.BCryptDecrypt, data)
 
-    def close(self) -> None:
-        if getattr(self, "_key", None):
-            _bcrypt.BCryptDestroyKey(self._key)
-            self._key = None
-        if getattr(self, "_alg", None):
-            _bcrypt.BCryptCloseAlgorithmProvider(self._alg, 0)
-            self._alg = None
+        def close(self) -> None:
+            if getattr(self, "_key", None):
+                _bcrypt.BCryptDestroyKey(self._key)
+                self._key = None
+            if getattr(self, "_alg", None):
+                _bcrypt.BCryptCloseAlgorithmProvider(self._alg, 0)
+                self._alg = None
 
-    def __del__(self):  # noqa: D105
-        try:
-            self.close()
-        except Exception:  # noqa: BLE001
-            pass
+        def __del__(self) -> None:  # noqa: D105
+            try:
+                self.close()
+            except (OSError, AttributeError, TypeError):
+                pass   # al cerrar el intérprete la biblioteca puede haberse descargado ya: no queda nada que liberar
 
 
-def _load_openssl():
+def _load_openssl() -> Any:
     """libcrypto de OpenSSL, o None si este equipo no la tiene."""
     import ctypes
     import ctypes.util
@@ -131,18 +137,18 @@ def _load_openssl():
     return None
 
 
-_openssl = None if _WINDOWS else _load_openssl()
+_openssl: Any = None if _WINDOWS else _load_openssl()
 
 
 class _OpenSslAes:
     """AES de OpenSSL (interfaz EVP), sin relleno: los datos van siempre en bloques de 16."""
 
-    def __init__(self, key: bytes, mode: str = "ECB", iv: bytes | None = None):
+    def __init__(self, key: bytes, mode: str = "ECB", iv: bytes | None = None) -> None:
         _check_args(key, mode, iv)
         self._key, self._mode, self._iv = key, mode.lower(), iv
         self._ctx: dict[int, int] = {}   # 1 = cifrar, 0 = descifrar; cada sentido lleva su encadenado
 
-    def _context(self, encrypt: int):
+    def _context(self, encrypt: int) -> Any:
         import ctypes
         ctx = self._ctx.get(encrypt)
         if ctx is None:
@@ -179,21 +185,25 @@ class _OpenSslAes:
             _openssl.EVP_CIPHER_CTX_free(ctypes.c_void_p(ctx))
         self._ctx = {}
 
-    def __del__(self):  # noqa: D105
+    def __del__(self) -> None:  # noqa: D105
         try:
             self.close()
-        except Exception:  # noqa: BLE001
-            pass
+        except (OSError, AttributeError, TypeError):
+            pass   # al cerrar el intérprete la biblioteca puede haberse descargado ya: no queda nada que liberar
 
 
 class _NoAes:
-    def __init__(self, *_args, **_kw):
+    def __init__(self, *_args: Any, **_kw: Any) -> None:
         raise AesError("this system has no AES provider (CNG or OpenSSL)")
 
 
 # Clave AES en modo ECB o CBC. En CBC el vector se va encadenando entre llamadas, así que
 # se puede cifrar un flujo por trozos (siempre múltiplos de 16 bytes).
-Aes = _CngAes if _WINDOWS else (_OpenSslAes if _openssl is not None else _NoAes)
+Aes: Any
+if sys.platform == "win32":
+    Aes = _CngAes
+else:
+    Aes = _OpenSslAes if _openssl is not None else _NoAes
 AVAILABLE = Aes is not _NoAes
 
 
@@ -201,7 +211,7 @@ class Ctr:
     """AES en modo contador tal como lo define el formato ZIP de WinZip: contador de
     16 bytes en little-endian que empieza en 1. Cifrar y descifrar son la misma operación."""
 
-    def __init__(self, key: bytes):
+    def __init__(self, key: bytes) -> None:
         self._aes = Aes(key, "ECB")
         self._counter = 1
         self._pending = b""   # resto de flujo de clave del último bloque

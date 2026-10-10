@@ -11,6 +11,7 @@ y cómo recolocarlas para que no se pierdan al mover la ventana o cambiar la res
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 # Atributos de DwmSetWindowAttribute (Windows 10 20H1+/Windows 11)
 _DWMWA_USE_IMMERSIVE_DARK_MODE = 20
@@ -21,13 +22,34 @@ _DWMWA_TEXT_COLOR = 36
 _DWMWCP_ROUND = 2
 
 
+_user32_dll = None
+
+
+def _tcl_error() -> type[BaseException]:
+    """El error de Tk (la ventana ya no existe), sin obligar a tener tkinter para usar la
+    parte de geometría de este módulo, que es aritmética pura."""
+    tk = sys.modules.get("tkinter")
+    return tk.TclError if tk is not None else OSError
+
+
+def _user32() -> Any:
+    """user32.dll, cargada solo desde System32 y una sola vez."""
+    global _user32_dll
+    if sys.platform != "win32":
+        raise OSError("user32 solo existe en Windows")
+    if _user32_dll is None:
+        from ..plat.windows import system_dll
+        _user32_dll = system_dll("user32")
+    return _user32_dll
+
+
 def _colorref(hex_color: str) -> int:
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return r | (g << 8) | (b << 16)   # COLORREF = 0x00BBGGRR
 
 
-def apply(root, caption: str, text: str, border: str) -> None:
+def apply(root: Any, caption: str, text: str, border: str) -> None:
     """Pinta la barra de título (fondo/letras), el borde y redondea las esquinas."""
     if sys.platform != "win32":
         return
@@ -35,26 +57,30 @@ def apply(root, caption: str, text: str, border: str) -> None:
         import ctypes
         from ctypes import wintypes
 
+        from ..plat.windows import system_dll   # las DLL de Windows, solo desde System32
+
         root.update_idletasks()
-        user32 = ctypes.windll.user32
+        user32 = _user32()
         user32.GetParent.restype = wintypes.HWND
         user32.GetParent.argtypes = [wintypes.HWND]
         child = root.winfo_id()
         hwnd = user32.GetParent(child) or child
-        dwm = ctypes.windll.dwmapi
+        dwm = system_dll("dwmapi")
+        dwm.DwmSetWindowAttribute.restype = ctypes.c_long
+        dwm.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
         handle = wintypes.HWND(hwnd)
 
         def set_attr(attr: int, value: int) -> None:
             val = ctypes.c_int(value)
-            dwm.DwmSetWindowAttribute(handle, ctypes.c_uint(attr), ctypes.byref(val), ctypes.sizeof(val))
+            dwm.DwmSetWindowAttribute(handle, attr, ctypes.byref(val), ctypes.sizeof(val))
 
         set_attr(_DWMWA_USE_IMMERSIVE_DARK_MODE, 1)       # botones del sistema en claro
         set_attr(_DWMWA_CAPTION_COLOR, _colorref(caption))
         set_attr(_DWMWA_TEXT_COLOR, _colorref(text))
         set_attr(_DWMWA_BORDER_COLOR, _colorref(border))
         set_attr(_DWMWA_WINDOW_CORNER_PREFERENCE, _DWMWCP_ROUND)
-    except Exception:  # noqa: BLE001 - en Windows antiguo se queda el marco por defecto
-        pass
+    except (OSError, AttributeError, ImportError, _tcl_error()):
+        pass   # en Windows antiguo no existen esos atributos: se queda el marco por defecto
 
 
 # =========================================================================
@@ -92,7 +118,7 @@ def rescale_rect(x: int, y: int, w: int, h: int, old: Rect, new: Rect,
                     max(min_size[0], round(w * fx)), max(min_size[1], round(h * fy)), new)
 
 
-def monitor_info(win) -> tuple[str, Rect, Rect]:
+def monitor_info(win: Any) -> tuple[str, Rect, Rect]:
     """(nombre, rectángulo completo, área útil sin barra de tareas) del monitor en el que
     está la ventana. Sin Windows, o si falla, se usa la pantalla que conoce Tk."""
     full = (0, 0, win.winfo_screenwidth(), win.winfo_screenheight())
@@ -107,7 +133,7 @@ def monitor_info(win) -> tuple[str, Rect, Rect]:
                         ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD),
                         ("szDevice", wintypes.WCHAR * 32)]
 
-        user32 = ctypes.windll.user32
+        user32 = _user32()
         user32.GetParent.restype = wintypes.HWND
         user32.GetParent.argtypes = [wintypes.HWND]
         user32.MonitorFromWindow.restype = wintypes.HANDLE
@@ -122,8 +148,8 @@ def monitor_info(win) -> tuple[str, Rect, Rect]:
             return "", full, full
         m, k = info.rcMonitor, info.rcWork
         return info.szDevice, (m.left, m.top, m.right, m.bottom), (k.left, k.top, k.right, k.bottom)
-    except Exception:  # noqa: BLE001
-        return "", full, full
+    except (OSError, AttributeError, _tcl_error()):
+        return "", full, full   # se usa la pantalla que conoce Tk
 
 
 def mouse_button_down() -> bool:
@@ -132,13 +158,15 @@ def mouse_button_down() -> bool:
         return False
     try:
         import ctypes
-        return bool(ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000
-                    or ctypes.windll.user32.GetAsyncKeyState(0x02) & 0x8000)
-    except Exception:  # noqa: BLE001
-        return False
+        user32 = _user32()
+        user32.GetAsyncKeyState.restype = ctypes.c_short
+        user32.GetAsyncKeyState.argtypes = [ctypes.c_int]
+        return bool(user32.GetAsyncKeyState(0x01) & 0x8000 or user32.GetAsyncKeyState(0x02) & 0x8000)
+    except (OSError, AttributeError):
+        return False   # sin esa función no se sabe: se supone que no hay arrastre
 
 
-def outer_rect(win) -> tuple[Rect, int, int]:
+def outer_rect(win: Any) -> tuple[Rect, int, int]:
     """((x, y, ancho, alto) del marco exterior, borde lateral, alto de la barra de título)."""
     x, y = win.winfo_x(), win.winfo_y()
     border = max(0, win.winfo_rootx() - x)
@@ -146,11 +174,11 @@ def outer_rect(win) -> tuple[Rect, int, int]:
     return (x, y, win.winfo_width() + 2 * border, win.winfo_height() + caption + border), border, caption
 
 
-def set_outer_rect(win, x: int, y: int, w: int, h: int, border: int, caption: int) -> None:
+def set_outer_rect(win: Any, x: int, y: int, w: int, h: int, border: int, caption: int) -> None:
     win.geometry(f"{max(1, w - 2 * border)}x{max(1, h - caption - border)}+{x}+{y}")
 
 
-def place_dialog(dlg, parent, vertical: float = 1 / 3) -> None:
+def place_dialog(dlg: Any, parent: Any, vertical: float = 1 / 3) -> None:
     """Centra un diálogo sobre su ventana, sin dejar que se salga de la pantalla ni que sea
     más grande que ella (con zoom alto o pantallas pequeñas se encoge y aparece entero)."""
     dlg.update_idletasks()

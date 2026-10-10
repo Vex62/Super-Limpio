@@ -8,6 +8,13 @@
 Todo con la biblioteca estándar (lzma, zlib, hashlib) y el AES de Windows. Los archivos
 resultantes son estándar: se abren con 7-Zip, WinRAR y similares.
 
+Sobre el cifrado: lo fijan los formatos, no esta aplicación. 7z usa AES-256 en modo CBC con
+la clave derivada por 2^19 vueltas de SHA-256 (sin código de autenticación: la integridad la
+dan los CRC, que van cifrados); zip usa AES-256 en modo contador con PBKDF2-HMAC-SHA1 de
+1000 vueltas y un HMAC-SHA1 por archivo (WinZip AE-2). Cambiar cualquiera de esos
+parámetros daría archivos que 7-Zip y WinRAR no abren. El modo ECB solo se usa como pieza
+para construir el modo contador. Vectores y sales salen de os.urandom.
+
 Principios de seguridad, como en el resto de la app:
   * Solo se LEEN los originales; nunca se modifican ni se borran desde aquí.
   * Se escribe en un archivo «.part» y solo al terminar bien se le da su nombre. Si se
@@ -19,18 +26,21 @@ Principios de seguridad, como en el resto de la app:
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import hmac
 import lzma
 import os
 import stat as _stat
 import struct
+import tempfile
 import time
 import zipfile
 import zlib
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import Any
 
 from . import aes, i18n
 from .plat import CLOUD_ONLY_MASK, FILE_ATTRIBUTE_REPARSE_POINT
@@ -116,7 +126,7 @@ class Result:
 # Qué se va a comprimir
 # =========================================================================
 
-def _skip_reason(st) -> str:
+def _skip_reason(st: Any) -> str:
     attrs = getattr(st, "st_file_attributes", 0)
     if _stat.S_ISLNK(st.st_mode) or attrs & FILE_ATTRIBUTE_REPARSE_POINT:
         return i18n.t("zip.skip.link")
@@ -164,14 +174,14 @@ def _arcname(path: str, base: str | None) -> str:
     return _valid_text(name) or "root"
 
 
-def collect(paths: list[str], should_stop=None, progress=None) -> Collection:
+def collect(paths: list[str], should_stop: Any = None, progress: Any = None) -> Collection:
     """Recorre lo seleccionado y devuelve la lista de archivos y carpetas a guardar."""
     col = Collection()
     tops = _drop_nested(paths)
     base = _arc_base(tops) if tops else None
     stack: list[str] = []
 
-    def add(path: str, st) -> None:
+    def add(path: str, st: Any) -> None:
         why = _skip_reason(st)
         if why:
             col.skipped.append((path, why))
@@ -281,7 +291,7 @@ def plan(fmt: str, level: str, total: int, ram_total: int = 0, ram_free: int = 0
 class _Reporter:
     """Avisa del progreso como mucho unas diez veces por segundo."""
 
-    def __init__(self, callback, should_stop, total: int):
+    def __init__(self, callback: Any, should_stop: Any, total: int) -> None:
         self.callback, self.should_stop, self.total = callback, should_stop, total
         self.phase, self.done, self.written, self._last = "compress", 0, 0, 0.0
 
@@ -300,7 +310,7 @@ class _Reporter:
             self.callback(Progress(self.phase, self.done, self.total, current, self.written))
 
 
-def _read_chunks(entry: Entry, skipped: list, tick):
+def _read_chunks(entry: Entry, skipped: list[Any], tick: Any) -> Any:
     """Va entregando el contenido del archivo. Si no se puede abrir, se omite entero; si
     falla a mitad, se guarda lo leído y se deja constancia. `tick(n, ruta)` se llama tras
     cada trozo (ahí se comprueba si el usuario ha detenido la operación)."""
@@ -387,7 +397,7 @@ class _SevenMeta:
     lzma_size: int = 0      # bytes que salieron del compresor (antes de cifrar)
     key: bytes = b""
     iv: bytes = b""
-    filters: list = field(default_factory=list)
+    filters: list[Any] = field(default_factory=list)
 
 
 def _7z_header(meta: _SevenMeta) -> bytes:
@@ -437,7 +447,7 @@ def _7z_header(meta: _SevenMeta) -> bytes:
 class _CbcSink:
     """Cifra en AES-CBC lo que le llega y lo escribe; rellena con ceros el último bloque."""
 
-    def __init__(self, out, key: bytes, iv: bytes):
+    def __init__(self, out: Any, key: bytes, iv: bytes) -> None:
         self.out, self.aes, self.buf, self.written = out, aes.Aes(key, "CBC", iv), b"", 0
 
     def write(self, data: bytes) -> None:
@@ -455,7 +465,7 @@ class _CbcSink:
         return self.written
 
 
-def _lzma2_block(block: bytes, filters: list) -> bytes:
+def _lzma2_block(block: bytes, filters: list[Any]) -> bytes:
     """Comprime un bloque independiente y le quita el byte de fin de flujo, para poder
     encadenarlo con el siguiente (cada bloque empieza reiniciando el diccionario)."""
     comp = lzma.LZMACompressor(lzma.FORMAT_RAW, filters=filters)
@@ -465,7 +475,7 @@ def _lzma2_block(block: bytes, filters: list) -> bytes:
     return data[:-1]
 
 
-def _write_7z(out, entries: list[Entry], opt: Options, skipped: list, report: _Reporter) -> _SevenMeta:
+def _write_7z(out: Any, entries: list[Entry], opt: Options, skipped: list[Any], report: _Reporter) -> _SevenMeta:
     total = sum(e.size for e in entries)
     how = plan("7z", opt.level, total, opt.ram_total, opt.ram_free)
     filters = [{"id": lzma.FILTER_LZMA2, "preset": _LEVEL[opt.level][0], "dict_size": how.dict_size}]
@@ -499,7 +509,7 @@ def _write_7z(out, entries: list[Entry], opt: Options, skipped: list, report: _R
                 emit(comp.flush())
         else:                   # varios hilos: bloques en paralelo, escritos en orden
             buf = bytearray()
-            queue: deque = deque()
+            queue: deque[Any] = deque()
 
             def drain(everything: bool) -> None:
                 while queue and (everything or len(queue) > how.threads or queue[0][0].done()):
@@ -517,7 +527,7 @@ def _write_7z(out, entries: list[Entry], opt: Options, skipped: list, report: _R
                     submit(bytes(buf[:how.block]))
                     del buf[:how.block]
 
-            def tick(_n: int, src: str) -> None:
+            def tick(n: int, src: str) -> None:
                 report.step(0, src)     # el avance se cuenta cuando el bloque ya está escrito
 
             def finish() -> None:
@@ -574,7 +584,8 @@ def _write_7z(out, entries: list[Entry], opt: Options, skipped: list, report: _R
 def _verify_7z(path: str, meta: _SevenMeta, report: _Reporter) -> None:
     """Vuelve a leer el archivo del disco, lo descifra y descomprime entero y compara el
     CRC de cada archivo con el que se calculó al leer el original."""
-    with open(path, "rb") as fh:
+    with contextlib.ExitStack() as stack:
+        fh = stack.enter_context(open(path, "rb"))
         head = fh.read(32)
         if head[:6] != _7Z_SIGNATURE or zlib.crc32(head[12:32]) != struct.unpack("<I", head[8:12])[0]:
             raise ArchiveError(i18n.t("zip.err.verify_header"))
@@ -587,10 +598,13 @@ def _verify_7z(path: str, meta: _SevenMeta, report: _Reporter) -> None:
             return
         fh.seek(32)
         cipher = aes.Aes(meta.key, "CBC", meta.iv) if meta.key else None
+        if cipher is not None:   # la clave se suelta aunque la comprobación falle a mitad
+            stack.callback(cipher.close)
         dec = lzma.LZMADecompressor(lzma.FORMAT_RAW, filters=meta.filters)
         pending = iter(streams)
-        cur = next(pending)
-        crc, left = 0, cur.size
+        cur: _Item | None = streams[0]
+        next(pending)
+        crc, left = 0, streams[0].size
         remaining = meta.pack_size
         while remaining > 0:
             block = fh.read(min(CHUNK, remaining))
@@ -607,7 +621,7 @@ def _verify_7z(path: str, meta: _SevenMeta, report: _Reporter) -> None:
                     part, plain = plain[:left], plain[left:]
                     crc = zlib.crc32(part, crc)
                     left -= len(part)
-                    if left == 0:
+                    if left == 0 and cur is not None:
                         if crc != cur.crc:
                             raise ArchiveError(i18n.t("zip.err.verify_data", name=cur.name))
                         cur = next(pending, None)
@@ -615,8 +629,6 @@ def _verify_7z(path: str, meta: _SevenMeta, report: _Reporter) -> None:
                 if dec.needs_input:
                     break
             report.step(len(block), cur.name if cur else "")
-        if cipher:
-            cipher.close()
         if cur is not None or not dec.eof:
             raise ArchiveError(i18n.t("zip.err.verify_data", name=cur.name if cur else os.path.basename(path)))
 
@@ -659,7 +671,7 @@ class _ZipRecord:
     version: int
 
 
-def _write_zip(out, entries: list[Entry], opt: Options, skipped: list, report: _Reporter) -> None:
+def _write_zip(out: Any, entries: list[Entry], opt: Options, skipped: list[Any], report: _Reporter) -> None:
     level = _LEVEL[opt.level][2]
     records: list[_ZipRecord] = []
     for e in entries:
@@ -691,7 +703,7 @@ def _write_zip(out, entries: list[Entry], opt: Options, skipped: list, report: _
             ctr, mac = aes.Ctr(ekey), hmac.new(mkey, digestmod="sha1")
             out.write(salt + check)
 
-        def emit(data: bytes) -> None:
+        def emit(data: bytes, ctr: Any = ctr, mac: Any = mac) -> None:   # los de ESTE archivo, no los del siguiente
             if data:
                 if ctr:
                     data = ctr.process(data)
@@ -705,7 +717,7 @@ def _write_zip(out, entries: list[Entry], opt: Options, skipped: list, report: _
             usize += len(chunk)
             emit(comp.compress(chunk))
         emit(comp.flush())
-        if encrypted:
+        if mac is not None:
             out.write(mac.digest()[:10])
             crc = 0     # AE-2: la integridad la da el código de autenticación, no el CRC
         end = out.tell()
@@ -786,7 +798,7 @@ def _verify_zip(path: str, password: str, report: _Reporter) -> None:
 # Operación completa
 # =========================================================================
 
-def compress(collection: Collection, opt: Options, progress=None, should_stop=None) -> Result:
+def compress(collection: Collection, opt: Options, progress: Any = None, should_stop: Any = None) -> Result:
     """Crea el archivo comprimido. Lanza Cancelled si se detiene y ArchiveError si algo
     impide terminarlo; en ambos casos no deja ningún archivo a medias."""
     if opt.fmt not in FORMATS or opt.level not in _LEVEL:
@@ -796,12 +808,11 @@ def compress(collection: Collection, opt: Options, progress=None, should_stop=No
     if opt.password and not password_ok(opt.fmt, opt.password):
         raise ArchiveError(i18n.t("zip.err.ascii_password"))
     dest = os.path.abspath(opt.dest)
-    part = dest + ".part"
+    part = ""
     sources = {os.path.normcase(os.path.abspath(e.src)) for e in collection.entries}
     if os.path.normcase(dest) in sources:   # al terminar se reemplazaría uno de los originales
         raise ArchiveError(i18n.t("zip.err.dest_is_source"))
-    entries = [e for e in collection.entries
-               if os.path.normcase(os.path.abspath(e.src)) != os.path.normcase(part)]
+    entries = list(collection.entries)
     if not entries:
         raise ArchiveError(i18n.t("zip.err.nothing"))
     skipped = list(collection.skipped)
@@ -810,11 +821,14 @@ def compress(collection: Collection, opt: Options, progress=None, should_stop=No
     started = time.monotonic()
     result = Result(dest, dirs=sum(1 for e in entries if e.is_dir))
     try:
-        with open(part, "w+b") as out:
+        # Archivo temporal con nombre único, creado en exclusiva junto al destino: no pisa un
+        # «.part» que ya hubiera ni escribe a través de un enlace que alguien dejara ahí.
+        fd, part = tempfile.mkstemp(prefix=os.path.basename(dest) + ".", suffix=".part", dir=os.path.dirname(dest))
+        with os.fdopen(fd, "w+b") as out:
+            meta: _SevenMeta | None = None
             if opt.fmt == "7z":
                 meta = _write_7z(out, entries, opt, skipped, report)
             else:
-                meta = None
                 _write_zip(out, entries, opt, skipped, report)
             out.flush()
             os.fsync(out.fileno())
@@ -823,7 +837,7 @@ def compress(collection: Collection, opt: Options, progress=None, should_stop=No
         report.step(0, "", result.out_bytes, force=True)
         if opt.verify:
             report.start("verify", result.out_bytes)
-            if opt.fmt == "7z":
+            if meta is not None:
                 _verify_7z(part, meta, report)
             else:
                 _verify_zip(part, opt.password, report)
@@ -844,7 +858,9 @@ def compress(collection: Collection, opt: Options, progress=None, should_stop=No
 
 
 def _discard(path: str) -> None:
+    if not path:
+        return
     try:
         os.remove(path)
     except OSError:
-        pass
+        pass   # no llegó a crearse o ya no está: no queda nada a medias

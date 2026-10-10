@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tkinter import ttk
+from typing import Any
 
 from ... import i18n, startup, plat
 from .. import theme
@@ -14,7 +15,7 @@ class StartupView(View):
     icon = "startup"
     view_key = "startup"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("startup.title")
         self.subtitle = i18n.t("startup.subtitle")
@@ -49,7 +50,7 @@ class StartupView(View):
         self.app.bg.run(startup.list_startup, on_done=self._loaded,
                         on_error=lambda e: self.status(f"{i18n.t('common.error')}: {e}"))
 
-    def _loaded(self, items) -> None:
+    def _loaded(self, items: Any) -> None:
         self.table.set_rows(items)
         on = sum(1 for i in items if i.enabled is not False)
         self.status(i18n.t("startup.status", n=len(items), on=on))
@@ -67,7 +68,7 @@ class StartupView(View):
                 self.status(msg)
 
 
-def _state(r) -> str:
+def _state(r: Any) -> str:
     if r.enabled is None:
         return i18n.t("startup.state.once")
     return i18n.t("startup.state.on") if r.enabled else i18n.t("startup.state.off")

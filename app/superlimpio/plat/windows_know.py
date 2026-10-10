@@ -8,7 +8,10 @@ puede probar desde cualquier equipo. Los niveles son los de criticality.Level:
 
 from __future__ import annotations
 
+import ntpath
 import os
+import re
+from typing import Any
 
 _V, _I, _C = 3, 2, 1
 
@@ -115,6 +118,60 @@ def under(key: str, folder: str) -> bool:
     return bool(folder) and (key == folder or key.startswith(folder + "\\"))
 
 
+# Nombres que Windows reserva para dispositivos, con cualquier extensión («NUL.txt» también)
+_RESERVED = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\..*)?$", re.IGNORECASE)
+
+
+def _local_hosts() -> set[str]:
+    return {"localhost", "127.0.0.1", "::1", "[::1]", ".", os.environ.get("COMPUTERNAME", "").lower()} - {""}
+
+
+def canonical(path: str) -> str | None:
+    """La ruta en su forma corriente («C:\\carpeta»), para que no se pueda nombrar una zona
+    protegida de otra manera: quita el prefijo «\\\\?\\» y traduce los recursos administrativos
+    de este equipo («\\\\localhost\\C$»). None si no es una ruta de archivos que se sepa
+    interpretar (dispositivos, volúmenes por GUID, recursos administrativos de otro equipo)."""
+    p = path.replace("/", "\\")
+    low = p.lower()
+    if low.startswith("\\\\?\\unc\\"):
+        p = "\\\\" + p[8:]
+    elif low.startswith("\\\\?\\"):
+        p = p[4:]
+        if not (len(p) >= 2 and p[0].isalpha() and p[1] == ":"):
+            return None
+    elif low.startswith("\\\\.\\"):
+        return None
+    if p.startswith("\\\\"):
+        parts = p[2:].split("\\")
+        host, share = parts[0].lower(), (parts[1] if len(parts) > 1 else "")
+        if len(share) == 2 and share[1] == "$" and share[0].isalpha():
+            if host not in _local_hosts():
+                return None
+            p = share[0].upper() + ":\\" + "\\".join(parts[2:])
+    return ntpath.normpath(p)
+
+
+def name_problem(path: str) -> str:
+    """'ads' si algún componente lleva «:» (flujo alternativo de datos), 'reserved' si es un
+    nombre de dispositivo; '' si los nombres son corrientes."""
+    _drive, rest = ntpath.splitdrive(path.replace("/", "\\"))
+    for part in rest.split("\\"):
+        if ":" in part:
+            return "ads"
+        if _RESERVED.match(part.rstrip(". ")):
+            return "reserved"
+    return ""
+
+
+def foreign_profile(key: str, e: dict[str, Any]) -> bool:
+    """True si la ruta (normalizada con norm()) es el perfil de otro usuario o está dentro."""
+    users = norm(str(e.get("users", "")))
+    if not users or not under(key, users) or key == users:
+        return False
+    own = norm(str(e.get("profile", ""))).rpartition("\\")[2]
+    return key[len(users) + 1:].partition("\\")[0] not in {own, "public"} - {""}
+
+
 def install_dir(path: str) -> str:
     """Carpeta del ejecutable; '' si cuelga directamente de la raíz de una unidad (ahí
     «la misma carpeta» sería el disco entero)."""
@@ -127,7 +184,7 @@ def system_dirs() -> tuple[str, ...]:
     return (os.environ.get("WINDIR", r"C:\Windows"),)
 
 
-def is_service(proc, parent) -> bool:
+def is_service(proc: Any, parent: Any) -> bool:
     """True si el proceso lo lanzó el Administrador de servicios."""
     return parent is not None and parent.name.lower() == "services.exe"
 
@@ -235,7 +292,7 @@ def path_env(app_root: str = "") -> dict[str, object]:
     }
 
 
-def classify_path(key: str, e: dict) -> tuple[int, str, str] | None:
+def classify_path(key: str, e: dict[str, Any]) -> tuple[int, str, str] | None:
     """(nivel, qué es, riesgo) de una ruta ya normalizada con norm(); None si es corriente."""
     if not key:
         return None
@@ -316,6 +373,41 @@ def classify_path(key: str, e: dict) -> tuple[int, str, str] | None:
 
 
 # =========================================================================
+# Líneas de comando del registro (desinstaladores, entradas de arranque)
+# =========================================================================
+
+def expand(path: str) -> str:
+    """Expande %VARIABLES% y ~ y normaliza la ruta."""
+    return os.path.normpath(os.path.expanduser(os.path.expandvars(path)))
+
+
+def split_command(cmd: str) -> tuple[str, str]:
+    """Separa «ejecutable» y «parámetros» de una UninstallString sin usar un shell.
+
+    Admite: "C:\\ruta con espacios\\unins000.exe" /SILENT
+            C:\\ruta con espacios\\uninstall.exe --flag   (sin comillas)
+            MsiExec.exe /I{GUID}
+    """
+    cmd = (cmd or "").strip()
+    if not cmd:
+        return "", ""
+    if cmd.startswith('"'):
+        end = cmd.find('"', 1)
+        if end == -1:
+            return cmd.strip('"'), ""
+        return expand(cmd[1:end]) if "%" in cmd[1:end] else cmd[1:end], cmd[end + 1:].strip()
+    # Sin comillas: buscar el final del ejecutable (.exe/.cmd/.bat/.com)
+    m = re.match(r"^(.+?\.(?:exe|com|bat|cmd))(?=\s|$)(.*)$", cmd, re.IGNORECASE)
+    if m:
+        exe = m.group(1)
+        if "%" in exe:
+            exe = expand(exe)
+        return exe, m.group(2).strip()
+    parts = cmd.split(None, 1)
+    return parts[0], parts[1] if len(parts) > 1 else ""
+
+
+# =========================================================================
 # Borrado: rutas que la aplicación se niega a tocar
 # =========================================================================
 
@@ -363,6 +455,7 @@ def protected_roots() -> tuple[set[str], set[str], set[str]]:
         rf"{sysdrive}\Users",
         rf"{sysdrive}\Users\Public",
         rf"{sysdrive}\Users\Default",
+        rf"{sysdrive}\Documents and Settings",   # enlace de compatibilidad hacia Users
     }
     for name in ("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos",
                  "OneDrive", "Favorites", "Contacts", "Saved Games", "Links", "Searches"):

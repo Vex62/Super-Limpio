@@ -8,7 +8,8 @@ import threading
 import tkinter as tk
 import traceback
 from tkinter import ttk
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from .. import i18n
 from . import theme
@@ -24,9 +25,9 @@ ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 class Background:
     """Ejecuta funciones en hilos y entrega resultados en el hilo de la interfaz."""
 
-    def __init__(self, root: tk.Misc, poll_ms: int = 60):
+    def __init__(self, root: tk.Misc, poll_ms: int = 60) -> None:
         self.root = root
-        self.q: "queue.Queue[tuple[int, Callable, tuple]]" = queue.Queue()
+        self.q: queue.Queue[tuple[int, Callable, tuple]] = queue.Queue()
         self.poll_ms = poll_ms
         self._gen = 0
         self._local = threading.local()
@@ -51,15 +52,15 @@ class Background:
             pass
         self.root.after(self.poll_ms, self._poll)
 
-    def call_in_ui(self, cb: Callable, *args) -> None:
+    def call_in_ui(self, cb: Callable, *args: Any) -> None:
         self.q.put((getattr(self._local, "gen", self._gen), cb, args))
 
-    def run(self, fn: Callable[..., Any], *args,
+    def run(self, fn: Callable[..., Any], *args: Any,
             on_done: Callable[[Any], None] | None = None,
             on_error: Callable[[BaseException], None] | None = None) -> threading.Thread:
         gen = self._gen
 
-        def worker():
+        def worker() -> None:
             self._local.gen = gen
             try:
                 result = fn(*args)
@@ -82,8 +83,8 @@ def _log_error(text: str) -> None:
     log_action("error_interno", "", text[-1500:], ok=False)
     try:
         print(text)
-    except Exception:  # noqa: BLE001 - con pythonw no hay consola
-        pass
+    except (OSError, ValueError):
+        pass   # con pythonw no hay consola a la que escribir; el fallo ya está en el registro
 
 
 # =========================================================================
@@ -91,7 +92,7 @@ def _log_error(text: str) -> None:
 # =========================================================================
 
 class Card(tk.Frame):
-    def __init__(self, master, sf: float = 1.0, padding: int = 16, **kw):
+    def __init__(self, master: Any, sf: float = 1.0, padding: int = 16, **kw: Any) -> None:
         super().__init__(master, bg=theme.CARD, highlightthickness=1,
                          highlightbackground=theme.BORDER, highlightcolor=theme.BORDER, **kw)
         self.inner = tk.Frame(self, bg=theme.CARD)
@@ -102,7 +103,7 @@ class Card(tk.Frame):
 class UsageBar(tk.Canvas):
     """Barra de ocupación con color según el nivel (verde/ámbar/rojo)."""
 
-    def __init__(self, master, sf: float = 1.0, height: int = 10, bg: str = theme.CARD, **kw):
+    def __init__(self, master: Any, sf: float = 1.0, height: int = 10, bg: str = theme.CARD, **kw: Any) -> None:
         super().__init__(master, height=int(height * sf), bg=bg, highlightthickness=0, **kw)
         self._frac = 0.0
         self.bind("<Configure>", lambda e: self._draw())
@@ -122,11 +123,11 @@ class UsageBar(tk.Canvas):
             self.create_rectangle(0, 0, max(2, int(w * self._frac)), h, fill=color, width=0)
 
 
-def badge(master, text: str, fg: str, bg: str, font) -> tk.Label:
+def badge(master: Any, text: str, fg: str, bg: str, font: Any) -> tk.Label:
     return tk.Label(master, text=f" {text} ", fg=fg, bg=bg, font=font, padx=4, pady=1)
 
 
-def risk_badge(master, risk, font) -> tk.Label:
+def risk_badge(master: Any, risk: Any, font: Any) -> tk.Label:
     fg, bg = theme.RISK_COLORS[risk]
     label = risk.label.lower() if i18n.current() == "es" else risk.label
     return badge(master, i18n.t("risk.badge", label=label), fg, bg, font)
@@ -138,9 +139,9 @@ class ZoomStepper(tk.Frame):
     Los dos botones son segmentos del mismo marco; el porcentaje del centro también se
     puede pulsar y devuelve la interfaz al 100 %. En el límite, el botón se apaga."""
 
-    def __init__(self, master, fonts: theme.Fonts, sf: float, value: float, lo: float, hi: float,
+    def __init__(self, master: Any, fonts: theme.Fonts, sf: float, value: float, lo: float, hi: float,
                  on_step: Callable[[int], None], on_reset: Callable[[], None],
-                 on_hover: Callable[[bool], None] | None = None):
+                 on_hover: Callable[[bool], None] | None = None) -> None:
         super().__init__(master, bg=theme.ZOOM_BORDER)
         self._hover_cb = on_hover
         line = max(1, round(sf))
@@ -166,7 +167,7 @@ class ZoomStepper(tk.Frame):
         if self._hover_cb:
             self._hover_cb(inside)
 
-    def _segment(self, glyph: str, font, enabled: bool, command: Callable[[], None], pady: int) -> tk.Label:
+    def _segment(self, glyph: str, font: Any, enabled: bool, command: Callable[[], None], pady: int) -> tk.Label:
         seg = tk.Label(self, text=glyph, font=font, width=3, pady=max(0, pady - 2),
                        bg=theme.ZOOM_BTN if enabled else theme.SIDEBAR_BG,
                        fg=theme.BLANCO if enabled else theme.ZOOM_OFF)
@@ -177,7 +178,7 @@ class ZoomStepper(tk.Frame):
         def paint(bg: str, fg: str = theme.BLANCO) -> None:
             seg.configure(bg=bg, fg=fg)
 
-        def release(e) -> None:
+        def release(e: Any) -> None:
             inside = 0 <= e.x < seg.winfo_width() and 0 <= e.y < seg.winfo_height()
             paint(theme.ZOOM_HOVER if inside else theme.ZOOM_BTN)
             if inside:
@@ -196,13 +197,13 @@ _WHEEL_EVENTS = ("<MouseWheel>", "<Button-4>", "<Button-5>")
 def bind_wheel(canvas: tk.Canvas) -> None:
     """Rueda del ratón para un Canvas con contenido desplazable. Funciona también con el
     puntero sobre los widgets que hay dentro, y se desengancha sola al salir o destruirse."""
-    def on_wheel(ev) -> None:
+    def on_wheel(ev: Any) -> None:
         if canvas.winfo_exists() and canvas.yview() != (0.0, 1.0):
             # En Linux (X11) la rueda no llega como <MouseWheel> sino como los botones 4 y 5.
             step = -1 if ev.num == 4 else 1 if ev.num == 5 else int(-ev.delta / 120)
             canvas.yview_scroll(step, "units")
 
-    def hook(_e=None) -> None:
+    def hook(_e: Any = None) -> None:
         for seq in _WHEEL_EVENTS:
             canvas.bind_all(seq, on_wheel)
 
@@ -217,11 +218,11 @@ def bind_wheel(canvas: tk.Canvas) -> None:
             return False
         return w is not None and (str(w) + ".").startswith(str(canvas) + ".")
 
-    def leave(_e=None) -> None:
+    def leave(_e: Any = None) -> None:
         if not pointer_inside():
             unhook()
 
-    def destroyed(e) -> None:
+    def destroyed(e: Any) -> None:
         if e.widget is canvas:
             try:
                 unhook()
@@ -236,9 +237,9 @@ def bind_wheel(canvas: tk.Canvas) -> None:
 class ScrollTree(ttk.Frame):
     """Treeview con barras de desplazamiento."""
 
-    def __init__(self, master, columns: list[tuple[str, str, int, str]], show_tree: bool = False,
+    def __init__(self, master: Any, columns: list[tuple[str, str, int, str]], show_tree: bool = False,
                  sf: float = 1.0, tree_heading: str = "Nombre", tree_width: int = 320,
-                 selectmode: str = "extended", style_frame: str = "TFrame"):
+                 selectmode: str = "extended", style_frame: str = "TFrame") -> None:
         super().__init__(master, style=style_frame)
         cols = [c[0] for c in columns]
         self.tree = ttk.Treeview(self, columns=cols, show=("tree headings" if show_tree else "headings"),
@@ -265,9 +266,10 @@ class ScrollTree(ttk.Frame):
 class SortableTable:
     """Mantiene filas (dict) y repinta la tabla ordenando al pulsar cabeceras."""
 
-    def __init__(self, tree: ttk.Treeview, render: Callable[[dict], tuple],
-                 sort_keys: dict[str, Callable[[dict], Any]], default_sort: str, descending: bool = True,
-                 tag_fn: Callable[[dict], tuple] | None = None, key_fn: Callable[[dict], str] | None = None):
+    def __init__(self, tree: ttk.Treeview, render: Callable[[Any], tuple[Any, ...]],
+                 sort_keys: dict[str, Callable[[Any], Any]], default_sort: str, descending: bool = True,
+                 tag_fn: Callable[[Any], tuple[Any, ...]] | None = None,
+                 key_fn: Callable[[Any], str] | None = None) -> None:
         self.tree = tree
         self.render = render
         self.sort_keys = sort_keys
@@ -275,10 +277,10 @@ class SortableTable:
         self.desc = descending
         self.tag_fn = tag_fn
         self.key_fn = key_fn
-        self.rows: list[dict] = []
+        self.rows: list[Any] = []
         self.visible: dict[str, dict] = {}
         self._iids: dict[str, str] = {}   # clave de fila -> iid (solo con key_fn)
-        self.filter_fn: Callable[[dict], bool] | None = None
+        self.filter_fn: Callable[[Any], bool] | None = None
         self._labels = {c: tree.heading(c, "text") for c in sort_keys}
         for col in sort_keys:
             tree.heading(col, command=lambda c=col: self.sort_by(c))
@@ -298,7 +300,7 @@ class SortableTable:
         self._update_heading_marks()
         self.refresh()
 
-    def set_rows(self, rows: list[dict]) -> None:
+    def set_rows(self, rows: list[Any]) -> None:
         self.rows = rows
         self.refresh()
 
@@ -328,7 +330,7 @@ class SortableTable:
         if yview:
             self.tree.yview_moveto(yview[0])
 
-    def _refresh_in_place(self, rows: list) -> None:
+    def _refresh_in_place(self, rows: list[Any]) -> None:
         """Actualiza las filas existentes en vez de vaciar y rellenar la tabla: no hay
         parpadeo y la selección y el desplazamiento se conservan solos."""
         tree = self.tree
@@ -357,10 +359,10 @@ class SortableTable:
         self._iids = new
         self.visible = visible
 
-    def _key(self, r: dict) -> str:
+    def _key(self, r: Any) -> str:
         return self.key_fn(r) if self.key_fn else str(id(r))
 
-    def selected(self) -> list[dict]:
+    def selected(self) -> list[Any]:
         return [self.visible[i] for i in self.tree.selection() if i in self.visible]
 
 
@@ -369,7 +371,7 @@ def make_icons(root: tk.Misc, sf: float) -> dict[str, tk.PhotoImage]:
     s = 16 if sf < 1.4 else 24
     k = s / 16
 
-    def rect(img, color, x1, y1, x2, y2):
+    def rect(img: Any, color: Any, x1: Any, y1: Any, x2: Any, y2: Any) -> None:
         img.put(color, to=(int(x1 * k), int(y1 * k), max(int(x1 * k) + 1, int(x2 * k)),
                            max(int(y1 * k) + 1, int(y2 * k))))
 

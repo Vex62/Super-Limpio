@@ -10,6 +10,7 @@ reconstruye entera, por lo que ``t`` solo se evalúa al construir cada pantalla.
 from __future__ import annotations
 
 import sys
+from typing import Any
 
 LANGUAGES = [("en", "English"), ("es", "Español")]
 _DEFAULT = "en"
@@ -40,17 +41,17 @@ def detect_os_language() -> str:
     import locale
 
     candidates: list[str] = []
-    try:
-        import ctypes
+    if sys.platform == "win32":
+        try:
+            import ctypes
 
-        windll = getattr(ctypes, "windll", None)
-        if windll is not None:
-            lang_id = windll.kernel32.GetUserDefaultUILanguage() & 0x3FF
-            if lang_id == 0x0A:  # LANG_SPANISH
+            kernel32 = ctypes.WinDLL("kernel32", winmode=0x00000800)   # solo desde System32
+            kernel32.GetUserDefaultUILanguage.restype = ctypes.c_ushort
+            if kernel32.GetUserDefaultUILanguage() & 0x3FF == 0x0A:  # LANG_SPANISH
                 return "es"
             candidates.append("en")
-    except Exception:  # noqa: BLE001 - cualquier fallo cae en la detección estándar
-        pass
+        except (OSError, AttributeError):
+            pass   # sin esa función se cae en la detección estándar, más abajo
     import os
     # En Linux y macOS el idioma lo dicen estas variables, por este orden de preferencia.
     for var in ("LC_ALL", "LC_MESSAGES", "LANGUAGE", "LANG"):
@@ -70,7 +71,7 @@ def detect_os_language() -> str:
     return _DEFAULT
 
 
-def t(key: str, /, **kw) -> str:
+def t(key: str, /, **kw: Any) -> str:
     # «key» es solo posicional: así un texto puede tener un marcador {key} (o {n}, {text}...)
     # sin chocar con el nombre del parámetro.
     # Un texto que en otro sistema dice otra cosa tiene una segunda entrada «clave@sistema».
@@ -81,7 +82,7 @@ def t(key: str, /, **kw) -> str:
     return text.format(**kw) if kw else text
 
 
-def plural(n: int, key: str, /, **kw) -> str:
+def plural(n: int, key: str, /, **kw: Any) -> str:
     """Elige la forma singular/plural: usa las claves ``key.one`` y ``key.other``."""
     return t(f"{key}.one" if n == 1 else f"{key}.other", n=n, **kw)
 
@@ -127,40 +128,28 @@ CATALOG: dict[str, dict[str, str]] = {
     "items.other": {"en": "{n} items", "es": "{n} elementos"},
 
     # --------------------------------------------------------------- arranque
-    "main.need_python": {"en": "Super Limpio needs Python 3.10 or newer.",
-                         "es": "Super Limpio necesita Python 3.10 o superior."},
+    "main.need_python": {"en": "Super Limpio needs Python 3.11 or newer.",
+                         "es": "Super Limpio necesita Python 3.11 o superior."},
     "main.need_tkinter": {
         "en": "tkinter is missing. Run preparar_entorno.bat to install the full portable Python.",
         "es": "Falta tkinter. Ejecuta preparar_entorno.bat para instalar el Python portable completo."},
     "error.unexpected.title": {"en": "Unexpected error", "es": "Error inesperado"},
     "error.unexpected.body": {
-        "en": "{detail}\n\nThe application is still running. Details saved to logs\\acciones.log",
-        "es": "{detail}\n\nLa aplicación sigue funcionando. Detalle guardado en logs\\acciones.log"},
+        "en": "{detail}\n\nThe application is still running. Details saved to the action log.",
+        "es": "{detail}\n\nLa aplicación sigue funcionando. El detalle queda en el registro de acciones."},
 
     # ------------------------------------------------------- marco / barra lateral
     "app.admin_suffix": {"en": "  —  Administrator", "es": "  —  Administrador"},
     "app.brand_sub": {"en": "v{v} · local, no network", "es": "v{v} · local y sin red"},
     "app.role.admin": {"en": "Administrator", "es": "Administrador"},
     "app.role.user": {"en": "Standard user", "es": "Usuario estándar"},
-    "app.relaunch_admin_link": {"en": "Restart as administrator…", "es": "Reiniciar como administrador…"},
     "app.status_hint": {
-        "en": "Every action asks for confirmation · logged to logs\\acciones.log",
-        "es": "Todas las acciones piden confirmación · registro en logs\\acciones.log"},
+        "en": "Every action asks for confirmation and is logged",
+        "es": "Todas las acciones piden confirmación y quedan registradas"},
     "app.language": {"en": "Language", "es": "Idioma"},
     "app.ui_size": {"en": "Size", "es": "Tamaño"},
     "app.ui_size_tip": {"en": "Shrink/enlarge the whole interface",
                         "es": "Reducir/aumentar toda la interfaz"},
-    "app.relaunch.title": {"en": "Restart as administrator", "es": "Reiniciar como administrador"},
-    "app.relaunch.body": {
-        "en": "A new Super Limpio window will open with administrator rights and this one will close. "
-              "Windows will show its User Account Control (UAC) prompt.\n\n"
-              "Only needed to clean system folders, end other users' processes or run DISM/powercfg.",
-        "es": "Se abrirá una nueva ventana de Super Limpio con permisos de administrador y esta se cerrará. "
-              "Windows mostrará su aviso de Control de cuentas de usuario (UAC).\n\n"
-              "Solo es necesario para limpiar carpetas del sistema, finalizar procesos de otros usuarios "
-              "o ejecutar DISM/powercfg."},
-    "app.relaunch.ok": {"en": "Restart elevated", "es": "Reiniciar elevado"},
-    "app.relaunch.failed": {"en": "Could not elevate", "es": "No se pudo elevar"},
 
     # ------------------------------------------------------------------ navegación
     "nav.summary": {"en": "Overview", "es": "Resumen"},
@@ -253,7 +242,6 @@ CATALOG: dict[str, dict[str, str]] = {
                              "es": "análisis detenido: resultados parciales"},
     "disk.extra.errors": {"en": "{n} items without read permission",
                           "es": "{n} elementos sin permiso de lectura"},
-    "disk.extra.errors_admin": {"en": " (try as administrator)", "es": " (prueba como administrador)"},
     "disk.extra.cloud": {"en": "{size} cloud-only (uses no disk)",
                          "es": "{size} solo en la nube (no ocupan disco)"},
     "disk.extra.links": {"en": "{n} links/junctions not followed",
@@ -272,9 +260,9 @@ CATALOG: dict[str, dict[str, str]] = {
     "disk.col.folder": {"en": "Folder", "es": "Carpeta"},
     "disk.col.desc": {"en": "Description", "es": "Descripción"},
     "disk.col.count": {"en": "Files", "es": "Archivos"},
-    "disk.legend.mid": {"en": "≥100 MB", "es": "≥100 MB"},
-    "disk.legend.big": {"en": "≥1 GB", "es": "≥1 GB"},
-    "disk.legend.huge": {"en": "≥10 GB", "es": "≥10 GB"},
+    "disk.legend.mid": {"en": "≥100 MiB", "es": "≥100 MiB"},
+    "disk.legend.big": {"en": "≥1 GiB", "es": "≥1 GiB"},
+    "disk.legend.huge": {"en": "≥10 GiB", "es": "≥10 GiB"},
     "disk.show_more": {"en": " Show more ({n} remaining)…", "es": " Mostrar más ({n} restantes)…"},
     "disk.show_more_hint": {"en": "Click to load the next ones", "es": "Pulsa aquí para cargar los siguientes"},
     "disk.small_files": {"en": " ({n} small files)", "es": " ({n} archivos pequeños)"},
@@ -411,10 +399,10 @@ CATALOG: dict[str, dict[str, str]] = {
     "memory.note": {
         "en": "\"Private memory\" is the memory the program reserved only for itself (the best indicator "
               "of its usage). \"In RAM now\" is the part physically resident right now. System processes "
-              "without access require running as administrator.",
+              "without access belong to the system or to other users.",
         "es": "«Memoria privada» es la memoria que el programa ha reservado solo para él (la cifra que "
               "mejor indica su consumo). «En RAM ahora» es la parte que ocupa físicamente en este "
-              "momento. Los procesos del sistema sin acceso necesitan ejecutar como administrador."},
+              "momento. Los procesos sin acceso son del sistema o de otros usuarios."},
     "memory.processes": {"en": "{n} processes", "es": "{n} procesos"},
     "memory.kill.protected_title": {"en": "Protected", "es": "Protegido"},
     "memory.kill.protected_body": {"en": "Super Limpio does not end essential processes:\n\n{items}",
@@ -546,8 +534,8 @@ CATALOG: dict[str, dict[str, str]] = {
                               "es": "La comprobación ha fallado: el índice del archivo no se relee bien."},
     "zip.err.verify_data": {"en": "The test failed at \"{name}\". The disk may be faulty.",
                             "es": "La comprobación ha fallado en «{name}». Puede que el disco tenga errores."},
-    "zip.err.grew": {"en": "\"{name}\" grew past 4 GB while it was being read.",
-                     "es": "«{name}» ha crecido por encima de 4 GB mientras se leía."},
+    "zip.err.grew": {"en": "\"{name}\" grew past 4 GiB while it was being read.",
+                     "es": "«{name}» ha crecido por encima de 4 GiB mientras se leía."},
 
     # ------------------------------------------------------------ Optimizar
     "opt.title": {"en": "Optimize", "es": "Optimizar"},
@@ -604,8 +592,8 @@ CATALOG: dict[str, dict[str, str]] = {
                           "es": "software de seguridad o anti-trampas"},
     "opt.kept.self": {"en": "it is Super Limpio itself or what launched it",
                       "es": "es el propio Super Limpio o quien lo abrió"},
-    "opt.kept.no_access": {"en": "Windows does not allow access to it (try as administrator)",
-                           "es": "Windows no permite acceder a él (prueba como administrador)"},
+    "opt.kept.no_access": {"en": "Windows does not allow access to it (it belongs to the system or another user)",
+                           "es": "Windows no permite acceder a él (es del sistema o de otro usuario)"},
     "opt.an.sum.perf": {
         "en": "Committed {commit} of {limit} · file cache {cache} · kernel {kernel} · {procs} processes, "
               "{threads} threads, {handles} handles",
@@ -686,10 +674,10 @@ CATALOG: dict[str, dict[str, str]] = {
     "opt.find.blind": {"en": "{n} system processes could not be measured",
                        "es": "{n} procesos del sistema no se pudieron medir"},
     "opt.find.blind_advice": {
-        "en": "Windows only lets an administrator read them. For a complete picture, use \"Restart as "
-              "administrator\" and analyze again.",
-        "es": "Windows solo deja leerlos a un administrador. Para verlo todo, usa «Reiniciar como "
-              "administrador» y repite el análisis."},
+        "en": "Windows only lets an administrator read them. They belong to the system or to other users, "
+              "so there is nothing to close there; Task Manager shows them if you need the detail.",
+        "es": "Windows solo deja leerlos a un administrador. Son del sistema o de otros usuarios, así que "
+              "ahí no hay nada que cerrar; el Administrador de tareas los enseña si necesitas el detalle."},
     "opt.find.reclaim": {"en": "Efficient mode has a proposal for {n} programs ({size} in RAM)",
                          "es": "El Modo eficiente tiene una propuesta para {n} programas ({size} en RAM)"},
     "opt.find.reclaim_advice": {
@@ -1027,10 +1015,10 @@ CATALOG: dict[str, dict[str, str]] = {
 
     # ----------------------------------------------------------------- Registro
     "log.title": {"en": "Action log", "es": "Registro de acciones"},
-    "log.subtitle": {"en": "Everything Super Limpio has done on this PC (saved to the logs folder, next "
-                           "to the app).",
-                     "es": "Todo lo que Super Limpio ha hecho en este equipo (se guarda en la carpeta "
-                           "logs, junto a la app)."},
+    "log.subtitle": {"en": "Everything Super Limpio has done on this PC (saved in your user folder; "
+                           "\"Open logs folder\" shows where).",
+                     "es": "Todo lo que Super Limpio ha hecho en este equipo (se guarda en tu carpeta de "
+                           "usuario; «Abrir carpeta de registros» enseña dónde)."},
     "log.open_folder": {"en": "Open logs folder", "es": "Abrir carpeta de registros"},
     "log.col.date": {"en": "Date", "es": "Fecha"},
     "log.col.action": {"en": "Action", "es": "Acción"},
@@ -1095,8 +1083,8 @@ CATALOG: dict[str, dict[str, str]] = {
     "winapi.shellexec_code": {"en": "ShellExecute returned code {rc}",
                               "es": "ShellExecute devolvió el código {rc}"},
     "winapi.proc_ended": {"en": "Process ended", "es": "Proceso finalizado"},
-    "winapi.proc_access_denied": {"en": "Access denied (error {err}). Try as administrator.",
-                                  "es": "Acceso denegado (error {err}). Prueba como administrador."},
+    "winapi.proc_access_denied": {"en": "Access denied (error {err}): it belongs to the system or another user.",
+                                  "es": "Acceso denegado (error {err}): es del sistema o de otro usuario."},
     "winapi.proc_fail": {"en": "Could not end (error {err})", "es": "No se pudo finalizar (error {err})"},
     "winapi.proc_op_fail": {"en": "Windows refused the change (error {err})",
                             "es": "Windows rechazó el cambio (error {err})"},
@@ -1265,8 +1253,8 @@ CATALOG: dict[str, dict[str, str]] = {
     "clean.dx.desc": {"en": "Shaders compiled by games and drivers. They regenerate.",
                       "es": "Shaders compilados por juegos y drivers. Se regeneran."},
     "clean.recycle_location": {"en": "Recycle Bin (all drives)", "es": "Papelera de reciclaje (todas las unidades)"},
-    "clean.partial_admin": {"en": "Without admin only part will be deleted.",
-                            "es": "Sin admin solo se borrará una parte."},
+    "clean.partial_admin": {"en": "Part of it needs administrator rights: it is offered at the end.",
+                            "es": "Una parte necesita administrador: se ofrece al terminar."},
     "clean.skipped_note": {"en": "{n} files in use or without permission were skipped.",
                            "es": "{n} archivos en uso o sin permiso se han omitido."},
 
@@ -1534,8 +1522,8 @@ CATALOG: dict[str, dict[str, str]] = {
                                   "the next restart.",
                             "es": "No se recomienda cerrarlo: alguna función de Windows puede dejar de funcionar "
                                   "hasta reiniciar."},
-    "crit.risk.unknown": {"en": "Run Super Limpio as administrator to find out what it is before closing it.",
-                          "es": "Ejecuta Super Limpio como administrador para saber qué es antes de cerrarlo."},
+    "crit.risk.unknown": {"en": "Check what it is in Task Manager before closing it.",
+                          "es": "Mira qué es en el Administrador de tareas antes de cerrarlo."},
     "crit.risk.normal": {"en": "Closing it only loses whatever was not saved in it.",
                          "es": "Cerrarlo solo hace perder lo que no esté guardado en él."},
 
@@ -1885,8 +1873,6 @@ CATALOG: dict[str, dict[str, str]] = {
     # ---- textos que en Linux dicen otra cosa (clave@linux sustituye a la clave)
     "common.open_explorer@linux": {"en": "Open in file manager", "es": "Abrir en el gestor de archivos"},
     "common.windows_only@linux": {"en": "Not available on Linux", "es": "No disponible en Linux"},
-    "app.status_hint@linux": {"en": "Every action asks for confirmation · logged to logs/acciones.log",
-                              "es": "Todas las acciones piden confirmación · registro en logs/acciones.log"},
     "nav.startup@linux": {"en": "Session startup", "es": "Inicio de sesión"},
     "startup.title@linux": {"en": "Session startup", "es": "Inicio de sesión"},
     "startup.manage@linux": {"en": "Manage startup applications", "es": "Administrar aplicaciones de inicio"},
@@ -2044,4 +2030,81 @@ CATALOG: dict[str, dict[str, str]] = {
                                        "es": "El sistema sigue funcionando, pero esa persona pierde sus archivos."},
     "crit.prisk.recycle_bin@linux": {"en": "Empty it from \"Cleanup\" instead of deleting the folder.",
                                      "es": "Vacíala desde «Limpieza» en vez de borrar la carpeta."},
+
+    # ------------------------------------------------- añadidos de la revisión de seguridad
+    "safety.bad_name": {
+        "en": "The name is a Windows device name or uses \":\" (an alternate data stream). It is not touched.",
+        "es": "El nombre es el de un dispositivo de Windows o lleva «:» (un flujo alternativo). No se toca."},
+    "safety.unresolved": {
+        "en": "The real location of this path cannot be worked out, so it is not touched.",
+        "es": "No se puede saber dónde está de verdad esta ruta, así que no se toca."},
+    "safety.other_profile": {"en": "It belongs to another user's profile.",
+                             "es": "Es de la carpeta de otro usuario."},
+    "safety.is_link": {"en": "It is a link or junction to another place.",
+                       "es": "Es un enlace o junction hacia otro sitio."},
+    "fileops.gone": {"en": "{n} items were already gone.", "es": "{n} elementos ya no existían."},
+    "fileops.cancelled": {"en": "Stopped: {done} of {total} items were deleted; the rest are untouched.",
+                          "es": "Detenido: se borraron {done} de {total} elementos; el resto queda intacto."},
+    "clean.refused_note": {
+        "en": "{n} locations were left untouched: {why}",
+        "es": "{n} ubicaciones se dejaron sin tocar: {why}"},
+    "clean.cancelled_note": {"en": "Stopped before finishing.", "es": "Detenida antes de terminar."},
+    "scanner.virtual_fs": {
+        "en": "{path} is not a disk: it is information the system makes up on the fly. It is not analyzed.",
+        "es": "{path} no es un disco: es información que el sistema genera al vuelo. No se analiza."},
+    "integrity.extra_files": {"en": "{n} files that are not part of the application (the first: {first})",
+                              "es": "{n} archivos que no son de la aplicación (el primero: {first})"},
+    "winapi.elevation_cancelled": {"en": "The Windows permission prompt was declined. Nothing was done.",
+                                   "es": "Se rechazó el aviso de permisos de Windows. No se ha hecho nada."},
+    "winapi.elevation_timeout": {"en": "The elevated helper is taking too long; it was left running.",
+                                 "es": "El auxiliar elevado tarda demasiado; se ha dejado trabajando."},
+    "programs.warn.not_absolute": {
+        "en": "\"{name}\" has no folder: Windows will look for it in the current folder and the PATH.",
+        "es": "«{name}» no lleva carpeta: Windows lo buscará en la carpeta actual y en el PATH."},
+    "linux.no_trash": {"en": "There is no safe trash folder on {path}.",
+                       "es": "No hay una papelera segura en {path}."},
+    "linux.bad_package_name": {"en": "\"{name}\" is not a valid package name; no command is run with it.",
+                               "es": "«{name}» no es un nombre de paquete válido; no se ejecuta nada con él."},
+    "helper.rejected": {"en": "The elevated helper refused the order: {why}",
+                        "es": "El auxiliar elevado ha rechazado la orden: {why}"},
+    "helper.no_result": {"en": "The elevated helper did not report a result (exit code {code}).",
+                         "es": "El auxiliar elevado no ha dejado resultado (código {code})."},
+    "app.already_open.title": {"en": "Super Limpio is already open", "es": "Super Limpio ya está abierto"},
+    "app.already_open.body": {
+        "en": "There is another Super Limpio window in this session. Two at once could clean the same "
+              "folders at the same time, so only one is allowed.",
+        "es": "Hay otra ventana de Super Limpio en esta sesión. Dos a la vez podrían limpiar las mismas "
+              "carpetas al mismo tiempo, así que solo se permite una."},
+    "app.admin_warning": {
+        "en": "Not needed: close it and open it normally. What needs elevation is asked for one action at a time.",
+        "es": "No hace falta: ciérrala y ábrela normal. Lo que necesita elevación se pide acción por acción."},
+    "log.write_failed": {"en": "{n} actions could not be logged (disk full or no permission): {path}",
+                         "es": "{n} acciones no se pudieron registrar (disco lleno o sin permiso): {path}"},
+    "cleaner.done_partial": {"en": "Cleanup finished, but {n} files could not be deleted.",
+                             "es": "Limpieza terminada, pero {n} archivos no se pudieron borrar."},
+    "cleaner.elevated.title": {"en": "Finish with administrator rights",
+                               "es": "Terminar con permisos de administrador"},
+    "cleaner.elevated.body": {
+        "en": "Some files could not be deleted without administrator rights. A separate helper can clean "
+              "only these categories; Windows will show its permission prompt (UAC). The window you are "
+              "using keeps running as a standard user.",
+        "es": "Algunos archivos no se pudieron borrar sin permisos de administrador. Un auxiliar aparte "
+              "puede limpiar solo estas categorías; Windows mostrará su aviso de permisos (UAC). La ventana "
+              "que estás usando sigue como usuario normal."},
+    "cleaner.elevated.ok": {"en": "Clean elevated", "es": "Limpiar con elevación"},
+    "cleaner.elevated.running": {"en": "The elevated helper is cleaning…", "es": "El auxiliar elevado está limpiando…"},
+    "cleaner.elevated.not_done": {"en": "The elevated cleanup was not done.",
+                                  "es": "La limpieza con elevación no se ha hecho."},
+    "cleaner.elevated.done": {"en": "Elevated helper: {size} freed, {n} files.",
+                              "es": "Auxiliar elevado: {size} liberados, {n} archivos."},
+    "disk.extra.mounts": {"en": "{n} other mounted disks not entered", "es": "{n} discos montados sin recorrer"},
+    "disk.elevated.title": {"en": "Delete with administrator rights",
+                            "es": "Borrar con permisos de administrador"},
+    "disk.elevated.body": {
+        "en": "{n} items could not be deleted. A separate helper can delete exactly these paths for good "
+              "with administrator rights; Windows will show its permission prompt (UAC). They do not go to "
+              "the Recycle Bin and cannot be recovered.",
+        "es": "{n} elementos no se pudieron borrar. Un auxiliar aparte puede borrar definitivamente estas "
+              "rutas, y solo estas, con permisos de administrador; Windows mostrará su aviso de permisos (UAC). "
+              "No pasan por la Papelera y no se pueden recuperar."},
 }

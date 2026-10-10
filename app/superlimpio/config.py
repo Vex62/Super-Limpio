@@ -19,12 +19,16 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import tempfile
+from typing import Any
 
-from .util import APP_ROOT, IS_WINDOWS
+from . import plat
+from .util import APP_ROOT
 
 _FILENAME = "superlimpio.config.json"
+_MAX_BYTES = 256 * 1024   # una configuración de verdad ocupa menos de 1 KiB: más que esto no se lee
 
-DEFAULTS: dict = {
+DEFAULTS: dict[str, Any] = {
     "language": None,       # None = aún sin elegir (se detecta del sistema la primera vez)
     "ui_scale": 1.0,        # multiplicador de zoom de la interfaz (0.8 .. 1.6)
     "sashes": {},           # posición de los divisores arrastrables, por vista
@@ -32,25 +36,36 @@ DEFAULTS: dict = {
 
 MIN_SCALE, MAX_SCALE, SCALE_STEP = 0.8, 1.6, 0.1
 
-_data: dict | None = None
+_data: dict[str, Any] | None = None
 _path: str | None = None
 
 
 def _candidate_paths() -> list[str]:
     paths = [os.path.join(str(APP_ROOT), _FILENAME)]
-    if IS_WINDOWS:
-        base = os.environ.get("LOCALAPPDATA")
-        if base:
-            paths.append(os.path.join(base, "SuperLimpio", _FILENAME))
-    else:
-        paths.append(os.path.join(os.path.expanduser("~/.config/superlimpio"), _FILENAME))
+    user_dir = plat.config_dir()   # %LOCALAPPDATA%\SuperLimpio · $XDG_CONFIG_HOME/superlimpio
+    if user_dir:
+        paths.append(os.path.join(user_dir, _FILENAME))
     return paths
 
 
-def _read_json(path: str) -> dict | None:
+def _trusted(fh: Any) -> bool:
+    """En Linux solo se hace caso a un archivo de configuración que sea del propio usuario
+    (o de root): en una carpeta compartida podría haberlo dejado otro."""
+    getuid = getattr(os, "getuid", None)
+    if getuid is None:
+        return True
+    return os.fstat(fh.fileno()).st_uid in (getuid(), 0)
+
+
+def _read_json(path: str) -> dict[str, Any] | None:
     try:
-        with open(path, encoding="utf-8") as fh:
-            stored = json.load(fh)
+        with open(path, "rb") as fh:
+            if not _trusted(fh):
+                return None
+            raw = fh.read(_MAX_BYTES + 1)
+        if len(raw) > _MAX_BYTES:
+            return None
+        stored = json.loads(raw.decode("utf-8"))
         return stored if isinstance(stored, dict) else None
     except FileNotFoundError:
         return None
@@ -99,25 +114,30 @@ def reset_to_defaults(quarantine: bool = True) -> None:
     _path = None
 
 
-def get(key: str, default=None):
+def _loaded() -> dict[str, Any]:
     _load()
-    assert _data is not None
-    return _data.get(key, DEFAULTS.get(key, default))
+    if _data is None:   # _load siempre lo deja puesto; si no, es un fallo de programación
+        raise RuntimeError("la configuración no se ha cargado")
+    return _data
 
 
-def set(key: str, value) -> None:
-    _load()
-    assert _data is not None
-    _data[key] = value
+def get(key: str, default: Any = None) -> Any:
+    return _loaded().get(key, DEFAULTS.get(key, default))
+
+
+def set(key: str, value: Any) -> None:
+    _loaded()[key] = value
     _save()
 
 
 def _atomic_write(path: str, text: str) -> bool:
     d = os.path.dirname(path)
+    tmp = ""
     try:
         os.makedirs(d, exist_ok=True)
-        tmp = f"{path}.{os.getpid()}.tmp"
-        with open(tmp, "w", encoding="utf-8") as fh:
+        # Nombre único y creado en exclusiva, en la misma carpeta (para que el reemplazo sea atómico)
+        fd, tmp = tempfile.mkstemp(prefix=_FILENAME + ".", suffix=".tmp", dir=d)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
             fh.flush()
             os.fsync(fh.fileno())
@@ -130,17 +150,16 @@ def _atomic_write(path: str, text: str) -> bool:
         return True
     except OSError:
         try:
-            if os.path.exists(tmp):
+            if tmp and os.path.exists(tmp):
                 os.remove(tmp)
         except OSError:
-            pass
+            pass   # el temporal se queda: no estorba y no se puede hacer más
         return False
 
 
 def _save() -> None:
     global _path
-    assert _data is not None
-    text = json.dumps(_data, ensure_ascii=False, indent=2)
+    text = json.dumps(_loaded(), ensure_ascii=False, indent=2)
     targets = [_path] if _path else []
     targets += [p for p in _candidate_paths() if p != _path]
     for candidate in targets:

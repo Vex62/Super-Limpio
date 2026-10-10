@@ -9,6 +9,8 @@ puede probar desde cualquier equipo. Los niveles son los de criticality.Level:
 from __future__ import annotations
 
 import os
+import posixpath
+from typing import Any
 
 _V, _I, _C = 3, 2, 1
 
@@ -133,6 +135,32 @@ def under(key: str, folder: str) -> bool:
     return key == folder or key.startswith(folder.rstrip("/") + "/")
 
 
+def canonical(path: str) -> str | None:
+    """La ruta en su forma corriente. En Linux no hay otras maneras de escribirla."""
+    return posixpath.normpath(path) if path else None
+
+
+def name_problem(path: str) -> str:
+    """En Linux no hay nombres reservados ni flujos alternativos."""
+    return ""
+
+
+def foreign_profile(key: str, e: dict[str, Any]) -> bool:
+    """True si la ruta (normalizada con norm()) es la carpeta de otro usuario o está dentro."""
+    home = norm(str(e.get("home", "")))
+    bases = {"/home", norm(str(e.get("users", "")))} - {"", "/"}
+    for users in bases:
+        if under(key, users) and key != users:
+            first = key[len(users) + 1:].partition("/")[0]
+            if not under(home, users) or first != home[len(users) + 1:].partition("/")[0]:
+                return True
+    return False
+
+
+# Sistemas de archivos que no son discos: ni se recorren ni se borra en ellos
+VIRTUAL_DIRS = ("/proc", "/sys", "/dev", "/run")
+
+
 def install_dir(path: str) -> str:
     """Carpeta del ejecutable; '' si es una de las compartidas (/usr/bin...) o la raíz."""
     folder = norm(path).rpartition("/")[0]
@@ -144,7 +172,7 @@ def system_dirs() -> tuple[str, ...]:
     return _SYSTEM_DIRS
 
 
-def is_service(proc, parent) -> bool:
+def is_service(proc: Any, parent: Any) -> bool:
     """True si al proceso lo lanzó directamente el gestor del sistema (PID 1)."""
     return parent is not None and parent.pid == 1
 
@@ -252,7 +280,7 @@ def path_env(app_root: str = "") -> dict[str, object]:
     }
 
 
-def classify_path(key: str, e: dict) -> tuple[int, str, str] | None:
+def classify_path(key: str, e: dict[str, Any]) -> tuple[int, str, str] | None:
     """(nivel, qué es, riesgo) de una ruta ya normalizada con norm(); None si es corriente."""
     if not key or not key.startswith("/"):
         return None
@@ -367,7 +395,9 @@ def protected_roots() -> tuple[set[str], set[str], set[str]]:
         "/run", "/sbin", "/sys", "/usr", "/var/lib", "/var/log", "/var/spool", "/var/mail",
     }
     exact = {
-        "/home", "/var", "/var/cache", "/var/tmp", "/tmp", "/mnt", "/media", "/srv", "/swapfile", "/swap.img",
+        # /tmp y /var/tmp figuran aquí como rutas PROTEGIDAS (no se borran); nada se escribe en ellas.
+        "/home", "/var", "/var/cache", "/var/tmp", "/tmp",  # noqa: S108  # nosec B108
+        "/mnt", "/media", "/srv", "/swapfile", "/swap.img",
         home, os.path.dirname(home.rstrip("/")),
     }
     for name in (".config", ".local", ".local/share", ".local/state", ".cache", ".ssh", ".gnupg", ".pki",

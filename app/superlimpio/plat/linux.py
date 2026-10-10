@@ -15,13 +15,15 @@ from __future__ import annotations
 import datetime as _dt
 import glob
 import os
+import re
 import shlex
 import shutil
 import signal
+import stat as _stat
 import subprocess
-import sys
 import time
 import urllib.parse
+from typing import Any
 
 from .. import i18n
 from .common import (PRIORITY_ABOVE_NORMAL, PRIORITY_BELOW_NORMAL, PRIORITY_IDLE, PRIORITY_NORMAL,
@@ -33,12 +35,68 @@ _NICE_OF = {PRIORITY_IDLE: 19, PRIORITY_BELOW_NORMAL: 10, PRIORITY_NORMAL: 0, PR
 
 
 def _which(*names: str) -> str:
-    """El primero de los programas que esté instalado ('' si ninguno)."""
+    """Ruta completa del primero de los programas que esté instalado ('' si ninguno). Los
+    programas se lanzan siempre por esa ruta, resuelta una vez, no por su nombre."""
     for name in names:
         found = shutil.which(name)
         if found:
-            return found
+            return os.path.abspath(found)
     return ""
+
+
+def _home() -> str:
+    return os.path.expanduser("~")
+
+
+def _xdg(variable: str, *default: str) -> str:
+    """Carpeta base de XDG. La especificación manda ignorar la variable si no es una ruta
+    absoluta: una relativa haría depender las carpetas de dónde se abrió la aplicación."""
+    value = os.environ.get(variable, "")
+    if value and os.path.isabs(value):
+        return os.path.normpath(value)
+    return os.path.join(_home(), *default)
+
+
+def state_dir() -> str:
+    """Carpeta del usuario para el registro de acciones ($XDG_STATE_HOME/superlimpio)."""
+    return os.path.join(_xdg("XDG_STATE_HOME", ".local", "state"), "superlimpio")
+
+
+def config_dir() -> str:
+    """Carpeta del usuario para las preferencias ($XDG_CONFIG_HOME/superlimpio)."""
+    return os.path.join(_xdg("XDG_CONFIG_HOME", ".config"), "superlimpio")
+
+
+def prepare_process() -> None:
+    """Ajustes del proceso al arrancar: lo que la aplicación cree (registro, preferencias,
+    papelera) es solo para el usuario."""
+    os.umask(0o077)
+
+
+_instance_lock = None
+
+
+def acquire_instance_lock() -> bool:
+    """True si esta es la única ventana de Super Limpio del usuario. Dos a la vez podrían
+    lanzar dos limpiezas sobre las mismas carpetas. El bloqueo se suelta solo al salir."""
+    global _instance_lock
+    if _instance_lock is not None:
+        return True
+    try:
+        import fcntl
+        folder = state_dir()
+        os.makedirs(folder, mode=0o700, exist_ok=True)
+        fd = os.open(os.path.join(folder, "superlimpio.lock"),
+                     os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | getattr(os, "O_CLOEXEC", 0), 0o600)
+    except (ImportError, OSError):
+        return True   # no se pudo comprobar: no se impide trabajar
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        os.close(fd)
+        return False
+    _instance_lock = fd
+    return True
 
 
 def _run(argv: list[str], timeout: float = 15.0, partial: bool = False) -> str:
@@ -272,6 +330,8 @@ def terminate_process(pid: int, create_time: float | None = None, grace: float =
             time.sleep(0.1)
             if not process_alive(pid, create_time):
                 return True, i18n.t("winapi.proc_ended")
+        if not process_alive(pid, create_time):   # el número puede ser ya de otro proceso
+            return True, i18n.t("winapi.proc_ended")
         os.kill(pid, signal.SIGKILL)
         return True, i18n.t("winapi.proc_ended")
     except ProcessLookupError:
@@ -386,7 +446,7 @@ def open_in_explorer(path: str) -> tuple[bool, str]:
 
 # (programa, opción tras la que va el comando, True si lo quiere en UN solo argumento).
 # Cada terminal lo pide a su manera, y con la opción equivocada se abre vacía o no se abre.
-_TERMINALS = (
+_TERMINALS: tuple[tuple[str, list[str], bool], ...] = (
     ("gnome-terminal", ["--"], False), ("ptyxis", ["--"], False), ("kgx", ["-e"], False),
     ("konsole", ["-e"], False), ("xfce4-terminal", ["-x"], False), ("mate-terminal", ["-x"], False),
     ("tilix", ["-e"], False), ("terminator", ["-x"], False), ("lxterminal", ["-e"], True),
@@ -423,7 +483,7 @@ def terminal_argv(command: str) -> list[str]:
     if found is None:
         return []
     exe, flag, single = found
-    inner = ["sh", "-c", script]
+    inner = ["/bin/sh", "-c", script]
     return [exe, *flag, shlex.join(inner)] if single else [exe, *flag, *inner]
 
 
@@ -434,13 +494,19 @@ def run_in_terminal(command: str) -> tuple[bool, str]:
     return _spawn(argv)
 
 
-def admin_command(script: str) -> tuple[str, str]:
-    """(ejecutable, parámetros) con los que se abriría la aplicación."""
-    return sys.executable, shlex.quote(script)
+def reopen_program(path: str) -> tuple[bool, str]:
+    """Vuelve a abrir un programa que se cerró."""
+    return shell_execute(path)
 
 
-def relaunch_as_admin(script: str) -> tuple[bool, str]:
-    return False, i18n.t("linux.not_available")
+def helper_command(script: str, request: str, digest: str) -> tuple[str, str]:
+    """En Linux no hay auxiliar elevado: lo que necesita privilegios se hace en una terminal
+    con «sudo», a la vista (ver capabilities)."""
+    return "", ""
+
+
+def run_elevated(exe: str, params: str, timeout: float = 3600.0) -> tuple[bool, str, int]:
+    return False, i18n.t("linux.not_available"), -1
 
 
 # =========================================================================
@@ -448,8 +514,42 @@ def relaunch_as_admin(script: str) -> tuple[bool, str]:
 # =========================================================================
 
 def _home_trash() -> str:
-    data = os.environ.get("XDG_DATA_HOME") or os.path.join(os.path.expanduser("~"), ".local", "share")
-    return os.path.join(data, "Trash")
+    return os.path.join(_xdg("XDG_DATA_HOME", ".local", "share"), "Trash")
+
+
+def _own_dir(path: str) -> bool:
+    """Es una carpeta de verdad (no un enlace) y es de este usuario."""
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    return _stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid()
+
+
+def _disk_trash(top: str, create: bool = False) -> str:
+    """La papelera de este usuario en otro disco, según la especificación de FreeDesktop:
+    «$top/.Trash/$uid» solo si «.Trash» es una carpeta con el bit pegajoso y no un enlace
+    (si no, cualquiera podría redirigirla); si no, «$top/.Trash-$uid». En ambos casos la
+    carpeta final tiene que ser del usuario y no un enlace. '' si no hay ninguna válida."""
+    uid = os.getuid()
+    shared = os.path.join(top, ".Trash")
+    try:
+        st = os.lstat(shared)
+        if _stat.S_ISDIR(st.st_mode) and st.st_mode & _stat.S_ISVTX:
+            mine = os.path.join(shared, str(uid))
+            if create and not os.path.lexists(mine):
+                os.mkdir(mine, 0o700)
+            if _own_dir(mine):
+                return mine
+    except OSError:
+        pass   # sin papelera compartida válida: se prueba la personal
+    mine = os.path.join(top, f".Trash-{uid}")
+    try:
+        if create and not os.path.lexists(mine):
+            os.mkdir(mine, 0o700)
+    except OSError:
+        return ""
+    return mine if _own_dir(mine) else ""
 
 
 def _mount_point(path: str) -> str:
@@ -461,12 +561,13 @@ def _mount_point(path: str) -> str:
 
 def _trash_dirs() -> list[str]:
     """La papelera personal y las de los demás discos montados."""
-    uid = os.getuid() if hasattr(os, "getuid") else 0
     dirs = [_home_trash()]
+    if not hasattr(os, "getuid"):
+        return dirs
     for mount in list_drives():
-        for candidate in (os.path.join(mount, ".Trash", str(uid)), os.path.join(mount, f".Trash-{uid}")):
-            if os.path.isdir(os.path.join(candidate, "files")):
-                dirs.append(candidate)
+        candidate = _disk_trash(mount)
+        if candidate and _own_dir(os.path.join(candidate, "files")):
+            dirs.append(candidate)
     return dirs
 
 
@@ -541,16 +642,24 @@ def _trash_one(path: str) -> None:
         trash, recorded = home_trash, path
     else:
         top = _mount_point(path)
-        trash = os.path.join(top, f".Trash-{os.getuid()}")
-        os.makedirs(os.path.join(trash, "files"), mode=0o700, exist_ok=True)
-        os.makedirs(os.path.join(trash, "info"), mode=0o700, exist_ok=True)
+        if os.path.normpath(top) == os.path.normpath(path):
+            raise OSError(i18n.t("safety.drive_root"))   # la raíz de un disco no va a su propia papelera
+        trash = _disk_trash(top, create=True)
+        if not trash:
+            raise OSError(i18n.t("linux.no_trash", path=top))
+        for sub_dir in ("files", "info"):
+            folder = os.path.join(trash, sub_dir)
+            if not os.path.lexists(folder):
+                os.mkdir(folder, 0o700)
+            if not _own_dir(folder):
+                raise OSError(i18n.t("linux.no_trash", path=top))
         recorded = os.path.relpath(path, top)
     base = os.path.basename(path.rstrip("/")) or "archivo"
     name, n = base, 1
     while True:   # el archivo .trashinfo se crea en exclusiva: reserva el nombre sin carreras
         info_path = os.path.join(trash, "info", name + ".trashinfo")
         try:
-            fd = os.open(info_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            fd = os.open(info_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             break
         except FileExistsError:
             n += 1
@@ -594,16 +703,16 @@ def _chromium_caches(*bases: str) -> list[str]:
     return out
 
 
-def cleaner_categories() -> list[dict]:
+def cleaner_categories() -> list[dict[str, Any]]:
     """Categorías de limpieza. Cada una es una lista blanca cerrada de ubicaciones; «risk»
     es el valor de safety.Risk (1 bajo · 2 medio · 3 alto). No se toca /tmp: ahí viven
     archivos de programas en marcha, y el propio sistema lo vacía al reiniciar."""
-    home = os.path.expanduser("~")
-    cache = os.environ.get("XDG_CACHE_HOME") or os.path.join(home, ".cache")
-    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(home, ".config")
-    data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+    home = _home()
+    cache = _xdg("XDG_CACHE_HOME", ".cache")
+    config = _xdg("XDG_CONFIG_HOME", ".config")
+    data = _xdg("XDG_DATA_HOME", ".local", "share")
 
-    def cat(cat_id: str, group: str, **kw) -> dict:
+    def cat(cat_id: str, group: str, **kw: Any) -> dict[str, Any]:
         return {"id": cat_id, "group": group, **kw}
 
     def electron(name: str) -> list[str]:
@@ -697,12 +806,12 @@ def _exec_program(command: str) -> str:
     return words[0] if os.path.isabs(words[0]) else (shutil.which(words[0]) or "")
 
 
-def startup_entries() -> list[dict]:
+def startup_entries() -> list[dict[str, Any]]:
     """Entradas de arranque: {name, command, location, enabled, exe}. Son los .desktop de
     las carpetas «autostart» (los del usuario tapan a los del sistema del mismo nombre)
     y los servicios de usuario de systemd que están habilitados."""
-    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
-    items: list[dict] = []
+    config = _xdg("XDG_CONFIG_HOME", ".config")
+    items: list[dict[str, Any]] = []
     seen: set[str] = set()
     for folder, label in ((os.path.join(config, "autostart"), i18n.t("startup.src.autostart_user")),
                           ("/etc/xdg/autostart", i18n.t("startup.src.autostart_system"))):
@@ -738,7 +847,7 @@ def open_startup_manager() -> tuple[bool, str]:
     kcm = _which("kcmshell6", "kcmshell5")
     if kcm:
         return _spawn([kcm, "kcm_autostart"])
-    config = os.environ.get("XDG_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config")
+    config = _xdg("XDG_CONFIG_HOME", ".config")
     folder = os.path.join(config, "autostart")
     try:
         os.makedirs(folder, exist_ok=True)
@@ -753,8 +862,7 @@ def open_startup_manager() -> tuple[bool, str]:
 
 def _desktop_apps() -> dict[str, dict[str, str]]:
     """Aplicaciones del menú: ruta del .desktop -> sus claves. Se omiten las ocultas."""
-    home = os.path.expanduser("~")
-    data = os.environ.get("XDG_DATA_HOME") or os.path.join(home, ".local", "share")
+    data = _xdg("XDG_DATA_HOME", ".local", "share")
     apps: dict[str, dict[str, str]] = {}
     for folder in ("/usr/share/applications", "/usr/local/share/applications", os.path.join(data, "applications")):
         for path in sorted(glob.glob(os.path.join(folder, "*.desktop"))):
@@ -803,15 +911,18 @@ def _package_details(manager: str, names: set[str]) -> dict[str, tuple[str, int,
     out: dict[str, tuple[str, int, str]] = {}
     if not names:
         return out
+    tool = _which({"deb": "dpkg-query", "rpm": "rpm", "pacman": "pacman"}.get(manager, ""))
+    if not tool:
+        return out
     if manager == "deb":
-        listing = _run(["dpkg-query", "-W", "-f=${Package}\\t${Version}\\t${Installed-Size}\\t${Maintainer}\\n",
-                        *sorted(names)], timeout=30)
+        listing = _run([tool, "-W", "-f=${Package}\\t${Version}\\t${Installed-Size}\\t${Maintainer}\\n",
+                        "--", *sorted(names)], timeout=30)
         for line in listing.splitlines():
             f = line.split("\t")
             if len(f) >= 4:
                 out[f[0]] = (f[1], int(f[2]) * 1024 if f[2].isdigit() else 0, f[3].split("<")[0].strip())
     elif manager == "rpm":
-        listing = _run(["rpm", "-q", "--qf", "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{VENDOR}\\n",
+        listing = _run([tool, "-q", "--qf", "%{NAME}\\t%{VERSION}-%{RELEASE}\\t%{SIZE}\\t%{VENDOR}\\n",
                         *sorted(names)], timeout=30)
         for line in listing.splitlines():
             f = line.split("\t")
@@ -819,7 +930,7 @@ def _package_details(manager: str, names: set[str]) -> dict[str, tuple[str, int,
                 out[f[0]] = (f[1], int(f[2]) if f[2].isdigit() else 0, "" if f[3] == "(none)" else f[3])
     elif manager == "pacman":
         for name in names:
-            version = _run(["pacman", "-Q", name], timeout=10).split()
+            version = _run([tool, "-Q", "--", name], timeout=10).split()
             out[name] = (version[1] if len(version) > 1 else "", 0, "")
     return out
 
@@ -836,11 +947,11 @@ def _parse_size(text: str) -> int:
         return 0
 
 
-def installed_programs() -> list[dict]:
+def installed_programs() -> list[dict[str, Any]]:
     """Programas instalados, como diccionarios con los campos de programs.Program: las
     aplicaciones del menú (con el paquete del sistema que las trae), las de Flatpak y
     las de Snap."""
-    programs: list[dict] = []
+    programs: list[dict[str, Any]] = []
     apps = _desktop_apps()
     owners = _package_owners(list(apps))
     details: dict[tuple[str, str], tuple[str, int, str]] = {}
@@ -893,16 +1004,32 @@ def installed_programs() -> list[dict]:
     return programs
 
 
+# «--» separa las opciones del nombre del paquete: aunque un nombre empezara por un guion,
+# el gestor no lo tomaría por una opción.
 _REMOVE = {
-    "deb": ("apt-get", "sudo apt-get remove {pkg}"),
-    "rpm": ("dnf", "sudo dnf remove {pkg}"),
-    "pacman": ("pacman", "sudo pacman -Rs {pkg}"),
-    "flatpak": ("flatpak", "flatpak uninstall {pkg}"),
-    "snap": ("snap", "sudo snap remove {pkg}"),
+    "deb": ("apt-get", "sudo apt-get remove -- {pkg}"),
+    "rpm": ("dnf", "sudo dnf remove -- {pkg}"),
+    "pacman": ("pacman", "sudo pacman -Rs -- {pkg}"),
+    "flatpak": ("flatpak", "flatpak uninstall -- {pkg}"),
+    "snap": ("snap", "sudo snap remove -- {pkg}"),
+}
+# Qué forma tiene un nombre de paquete válido en cada gestor. Lo que no encaje no se pasa
+# a ningún comando.
+_PACKAGE_NAME = {
+    "deb": re.compile(r"^[a-z0-9][a-z0-9+.-]+$"),
+    "snap": re.compile(r"^[a-z0-9][a-z0-9-]*$"),
+    "rpm": re.compile(r"^[A-Za-z0-9][A-Za-z0-9+._-]*$"),
+    "pacman": re.compile(r"^[A-Za-z0-9@_+][A-Za-z0-9@._+-]*$"),
+    "flatpak": re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*(\.[A-Za-z_][A-Za-z0-9_-]*)+$"),
 }
 
 
-def uninstall_command(p) -> tuple:
+def valid_package_name(scope: str, name: str) -> bool:
+    pattern = _PACKAGE_NAME.get(scope)
+    return bool(pattern and name and len(name) <= 255 and pattern.match(name))
+
+
+def uninstall_command(p: Any) -> tuple[str, str, list[str], bool, str]:
     """(ejecutable, parámetros, avisos, crítico, texto a mostrar) para desinstalar con el
     gestor de paquetes, en una terminal: el gestor enseña lo que va a quitar y pide
     confirmación él mismo."""
@@ -910,9 +1037,12 @@ def uninstall_command(p) -> tuple:
     spec = _REMOVE.get(p.scope)
     if spec is None or not p.reg_key:
         return "", "", [i18n.t("linux.uninstall_manual", path=p.reg_key or p.name)], False, ""
+    if not valid_package_name(p.scope, p.reg_key):
+        return "", "", [i18n.t("linux.bad_package_name", name=p.reg_key)], False, ""
     tool, template = spec
     if p.scope == "rpm" and not shutil.which("dnf"):
-        tool, template = ("zypper", "sudo zypper remove {pkg}") if shutil.which("zypper") else ("yum", "sudo yum remove {pkg}")
+        tool, template = (("zypper", "sudo zypper remove -- {pkg}") if shutil.which("zypper")
+                          else ("yum", "sudo yum remove -- {pkg}"))
     command = template.format(pkg=shlex.quote(p.reg_key))
     argv = terminal_argv(command)
     if not argv:
@@ -934,9 +1064,9 @@ def open_apps_settings() -> tuple[bool, str]:
 # Herramientas del sistema: comandos oficiales de la distribución
 # =========================================================================
 
-def system_tools() -> list[dict]:
+def system_tools() -> list[dict[str, Any]]:
     """Herramientas que se ofrecen: solo las que están instaladas en este equipo."""
-    def tool(tool_id: str, exe: str, params: str = "", **kw) -> dict:
+    def tool(tool_id: str, exe: str, params: str = "", **kw: Any) -> dict[str, Any]:
         return {"id": tool_id, "exe": exe, "params": params, **kw}
 
     have = shutil.which

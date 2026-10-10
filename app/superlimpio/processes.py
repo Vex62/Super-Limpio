@@ -23,6 +23,9 @@ class ProcInfo:
     count: int = 1
     pids: list[int] = field(default_factory=list)
     service: bool = False   # lo lanzó el Administrador de servicios (services.exe)
+    # PID -> instante de creación: con el PID identifica al proceso sin ambigüedad (el
+    # sistema reutiliza los números), y es lo que se comprueba antes de finalizarlo.
+    created: dict[int, float] = field(default_factory=dict)
 
 
 class ProcessMonitor:
@@ -47,7 +50,8 @@ class ProcessMonitor:
                 cpu = max(0.0, (r.cpu_time - self._prev[r.pid]) / (dt * self._ncpu) * 100)
             out.append(ProcInfo(r.pid, r.name, r.path, r.private, r.working_set,
                                 min(cpu, 100.0), r.threads, r.accessible, 1, [r.pid],
-                                service=r.ppid != r.pid and know.is_service(r, by_pid.get(r.ppid))))
+                                service=r.ppid != r.pid and know.is_service(r, by_pid.get(r.ppid)),
+                                created={r.pid: r.create_time}))
         self._prev = new_prev
         self._prev_t = now
         return out
@@ -60,7 +64,7 @@ def group_by_program(procs: list[ProcInfo]) -> list[ProcInfo]:
         g = groups.get(key)
         if g is None:
             groups[key] = ProcInfo(p.pid, p.name, p.path, p.private, p.working_set, p.cpu_pct,
-                                   p.threads, p.accessible, 1, [p.pid], p.service)
+                                   p.threads, p.accessible, 1, [p.pid], p.service, dict(p.created))
         else:
             g.private += p.private
             g.working_set += p.working_set
@@ -68,6 +72,7 @@ def group_by_program(procs: list[ProcInfo]) -> list[ProcInfo]:
             g.threads += p.threads
             g.count += 1
             g.pids.append(p.pid)
+            g.created.update(p.created)
             g.accessible = g.accessible or p.accessible
             g.service = g.service or p.service
     return list(groups.values())

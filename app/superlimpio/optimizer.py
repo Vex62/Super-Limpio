@@ -25,6 +25,7 @@ import os
 import time
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from . import i18n, plat
 from .criticality import Level, assess_process
@@ -36,7 +37,7 @@ MB = 1024 ** 2
 GB = 1024 ** 3
 
 
-class Action(str, Enum):
+class Action(str, Enum):  # noqa: UP042 - StrEnum cambiaría str(Action.X), que se usa como texto en la interfaz
     KEEP = "keep"            # no tocar
     THROTTLE = "throttle"    # modo de eficiencia (reversible)
     CLOSE = "close"          # pedir el cierre / finalizar
@@ -51,7 +52,7 @@ def category_of(name: str) -> str:
     name = name.lower()
     cat = know.CATEGORY_OF.get(name)
     if cat:
-        return cat
+        return str(cat)
     return "peripheral" if any(h in name for h in know.PERIPHERAL_HINTS) else "other"
 
 
@@ -83,8 +84,8 @@ class Candidate:
     key: str
     name: str
     path: str
-    members: list = field(default_factory=list)   # RawProcess de todo el árbol del programa
-    windows: list = field(default_factory=list)   # WindowInfo
+    members: list[Any] = field(default_factory=list)   # RawProcess de todo el árbol del programa
+    windows: list[Any] = field(default_factory=list)   # WindowInfo
     category: str = "other"
     suggested: Action = Action.KEEP
     action: Action = Action.KEEP
@@ -114,40 +115,40 @@ class Plan:
     kept: dict[str, int]              # motivo -> nº de procesos que nunca se tocan
     target_key: str = ""
     target_name: str = ""
-    target_members: list = field(default_factory=list)
+    target_members: list[Any] = field(default_factory=list)
     profile: str = "game"
 
     def chosen(self, action: Action) -> list[Candidate]:
         return [c for c in self.candidates if c.action == action]
 
 
-def program_key(p) -> str:
-    return (p.path or p.name).lower()
+def program_key(p: Any) -> str:
+    return str(p.path or p.name).lower()
 
 
 def _norm(path: str) -> str:
-    return know.norm(path)
+    return str(know.norm(path))
 
 
 def _under(path: str, folder: str) -> bool:
     if not path or not folder:
         return False
-    return know.under(know.norm(path), know.norm(folder))
+    return bool(know.under(know.norm(path), know.norm(folder)))
 
 
 def _install_dir(path: str) -> str:
     """Carpeta del programa, o '' si es una carpeta compartida por muchos programas."""
-    return know.install_dir(path)
+    return str(know.install_dir(path))
 
 
-def _sysdirs(windir) -> tuple[str, ...]:
+def _sysdirs(windir: Any) -> tuple[str, ...]:
     """Carpetas del sistema: las de este equipo, o las que se indiquen (tests)."""
     if windir is None:
-        return know.system_dirs()
+        return tuple(know.system_dirs())
     return (windir,) if isinstance(windir, str) else tuple(windir)
 
 
-def _valid_parent(p, by_pid: dict):
+def _valid_parent(p: Any, by_pid: dict[int, Any]) -> Any:
     """El padre real de un proceso. Si el PID del padre se ha reutilizado (el supuesto
     padre nació después que el hijo), no cuenta."""
     q = by_pid.get(p.ppid)
@@ -158,7 +159,8 @@ def _valid_parent(p, by_pid: dict):
     return q
 
 
-def _exclusion(p, by_pid: dict, self_chain: set[int], self_keys: set[str], sysdirs: tuple[str, ...]) -> str:
+def _exclusion(p: Any, by_pid: dict[int, Any], self_chain: set[int], self_keys: set[str],
+               sysdirs: tuple[str, ...]) -> str:
     """Motivo por el que un proceso jamás se propone ('' = se puede proponer)."""
     name = p.name.lower()
     if p.pid in know.VITAL_PIDS or name in know.PROTECTED_PROCESSES or name in know.SENSITIVE_PROCESSES:
@@ -176,7 +178,7 @@ def _exclusion(p, by_pid: dict, self_chain: set[int], self_keys: set[str], sysdi
     return ""
 
 
-def cpu_percent(prev: list, cur: list, dt: float, ncpu: int) -> dict[int, float]:
+def cpu_percent(prev: list[Any], cur: list[Any], dt: float, ncpu: int) -> dict[int, float]:
     """% de CPU (sobre el total del equipo) de cada proceso entre dos muestras."""
     if dt <= 0:
         return {}
@@ -189,7 +191,7 @@ def cpu_percent(prev: list, cur: list, dt: float, ncpu: int) -> dict[int, float]
     return out
 
 
-def window_targets(procs: list, windows: list) -> list[tuple[str, str]]:
+def window_targets(procs: list[Any], windows: list[Any]) -> list[tuple[str, str]]:
     """Programas con ventana a la vista: [(clave, etiqueta)], para elegir el objetivo."""
     by_pid = {p.pid: p for p in procs}
     seen: dict[str, str] = {}
@@ -204,7 +206,7 @@ def window_targets(procs: list, windows: list) -> list[tuple[str, str]]:
     return sorted(seen.items(), key=lambda kv: kv[1].lower())
 
 
-def _exclusions(procs: list, self_pid: int | None = None, windir: str | None = None) -> dict[int, str]:
+def _exclusions(procs: list[Any], self_pid: int | None = None, windir: str | None = None) -> dict[int, str]:
     """PID -> motivo por el que no se toca ('' = se puede proponer)."""
     self_pid = os.getpid() if self_pid is None else self_pid
     sysdirs = _sysdirs(windir)
@@ -233,14 +235,14 @@ def _exclusions(procs: list, self_pid: int | None = None, windir: str | None = N
     return excluded
 
 
-def selection_plan(usages: list, procs: list, windows: list, self_pid: int | None = None,
+def selection_plan(usages: list[Any], procs: list[Any], windows: list[Any], self_pid: int | None = None,
                    windir: str | None = None) -> tuple[Plan, list[str]]:
     """Plan de cierre para los programas elegidos a mano en el resultado del análisis.
 
     Devuelve (plan, omitidos). Lo protegido (Windows, servicios, seguridad, la propia app,
     lo inaccesible) se aparta con su motivo y nunca entra en el plan, se elija o no."""
     excluded = _exclusions(procs, self_pid, windir)
-    by_pid: dict[int, list] = {}
+    by_pid: dict[int, list[Any]] = {}
     for w in windows:
         by_pid.setdefault(w.pid, []).append(w)
     plan, blocked = Plan([], {}), []
@@ -256,7 +258,7 @@ def selection_plan(usages: list, procs: list, windows: list, self_pid: int | Non
     return plan, blocked
 
 
-def build_plan(procs: list, windows: list, target_key: str = "", profile: str = "game",
+def build_plan(procs: list[Any], windows: list[Any], target_key: str = "", profile: str = "game",
                cpu: dict[int, float] | None = None, self_pid: int | None = None,
                windir: str | None = None) -> Plan:
     """Clasifica los procesos en ejecución y propone una acción para cada programa.
@@ -271,7 +273,7 @@ def build_plan(procs: list, windows: list, target_key: str = "", profile: str = 
     # Raíz de cada proceso: sube por los padres mientras sigan siendo del mismo programa.
     roots: dict[int, object] = {}
 
-    def root_of(p, depth: int = 0):
+    def root_of(p: Any, depth: int = 0) -> Any:
         if p.pid in roots:
             return roots[p.pid]
         roots[p.pid] = p   # corta posibles ciclos
@@ -369,7 +371,7 @@ class Session:
     def active(self) -> bool:
         return bool(self.throttled or self.boosted)
 
-    def prune(self, api=plat) -> None:
+    def prune(self, api: Any = plat) -> None:
         """Olvida los procesos que ya han terminado."""
         self.throttled = [t for t in self.throttled if api.process_alive(t.pid, t.create_time)]
         self.boosted = [t for t in self.boosted if api.process_alive(t.pid, t.create_time)]
@@ -419,15 +421,15 @@ def describe_plan(plan: Plan, options: Options, limit: int = 60) -> str:
     return "\n".join(out)
 
 
-def _may_touch(m) -> bool:
+def _may_touch(m: Any) -> bool:
     """Segunda barrera, justo antes de actuar: nunca procesos esenciales ni la propia app."""
     allowed, _risk, _why = check_process_kill(m.name, m.pid)
     name = m.name.lower()
     return allowed and name not in know.SENSITIVE_PROCESSES and name not in know.SECURITY_PROCESSES
 
 
-def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=plat, log=log_action,
-               sleep=time.sleep, clock=time.monotonic) -> ApplyResult:
+def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api: Any = plat, log: Any = log_action,
+               sleep: Any = time.sleep, clock: Any = time.monotonic) -> ApplyResult:
     """Ejecuta lo que el usuario ha confirmado. Cada proceso se identifica por PID e
     instante de creación: si ya no es el mismo, se salta."""
     res = ApplyResult()
@@ -454,7 +456,7 @@ def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=pla
         elif first_error:
             res.failures.append(f"{c.name}: {first_error}")
 
-    def alive(c: Candidate) -> list:
+    def alive(c: Candidate) -> list[Any]:
         return [m for m in c.members if api.process_alive(m.pid, m.create_time)]
 
     def end(c: Candidate, how: str) -> None:
@@ -520,7 +522,7 @@ def apply_plan(plan: Plan, options: Options, session: Session = SESSION, api=pla
     return res
 
 
-def restore(session: Session = SESSION, api=plat, log=log_action) -> tuple[int, list[str]]:
+def restore(session: Session = SESSION, api: Any = plat, log: Any = log_action) -> tuple[int, list[str]]:
     """Deshace lo ralentizado y lo priorizado. Devuelve (procesos restaurados, fallos)."""
     done, failures = 0, []
     for t in session.throttled:
@@ -542,11 +544,13 @@ def restore(session: Session = SESSION, api=plat, log=log_action) -> tuple[int, 
     return done, failures
 
 
-def reopen(session: Session = SESSION, api=plat, log=log_action) -> list[str]:
+def reopen(session: Session = SESSION, api: Any = plat, log: Any = log_action) -> list[str]:
     """Vuelve a abrir los programas que se cerraron. Devuelve los que no se pudo."""
     failures = []
     for name, path in session.closed:
-        ok, msg = api.shell_execute(path) if path else (False, i18n.t("winapi.not_found"))
+        # reopen_program lo abre con los permisos normales del usuario aunque la ventana sea de administrador
+        launch = getattr(api, "reopen_program", api.shell_execute)
+        ok, msg = launch(path) if path else (False, i18n.t("winapi.not_found"))
         log("modo_eficiente_reabrir", path or name, msg, ok=ok)
         if not ok:
             failures.append(f"{name}: {msg}")
@@ -574,7 +578,7 @@ class ProgramUsage:
     steady: bool = False      # creció en todas las muestras
     has_window: bool = False
     accessible: bool = True
-    members: list = field(default_factory=list)   # RawProcess de la última muestra
+    members: list[Any] = field(default_factory=list)   # RawProcess de la última muestra
     level: int = 0            # importancia para el sistema (criticality.Level)
     what: str = ""            # qué es
     risk: str = ""            # qué pasa si se cierra
@@ -597,15 +601,16 @@ class Report:
     seconds: float
     mem: object = None
     perf: object = None
-    procs: list = field(default_factory=list)     # última muestra, para actuar sobre el resultado
+    procs: list[Any] = field(default_factory=list)     # última muestra, para actuar sobre el resultado
 
     @property
     def severity(self) -> int:
         return max((f.severity for f in self.findings), default=0)
 
 
-def take_samples(count: int = 10, interval: float = 1.0, should_stop=None, progress=None,
-                 api=plat, sleep=time.sleep, clock=time.monotonic) -> list[tuple[float, list]]:
+def take_samples(count: int = 10, interval: float = 1.0, should_stop: Any = None, progress: Any = None,
+                 api: Any = plat, sleep: Any = time.sleep,
+                 clock: Any = time.monotonic) -> list[tuple[float, list[Any]]]:
     """Toma varias muestras de todos los procesos. Solo lee contadores."""
     samples = []
     for i in range(max(2, count)):
@@ -628,7 +633,8 @@ def _system_advice(u: ProgramUsage, key: str) -> str:
     return f"{u.what} {u.risk} {i18n.t(key)}"
 
 
-def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids: set[int] | None = None,
+def analyze(samples: list[tuple[float, list[Any]]], mem: Any = None, perf: Any = None,
+            window_pids: set[int] | None = None,
             ncpu: int | None = None, startup_enabled: int | None = None,
             reclaim: tuple[int, int] | None = None, is_admin: bool = False,
             self_pid: int | None = None, windir: str | None = None) -> Report:
@@ -660,7 +666,7 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
 
     # CPU por intervalo, sumada por programa
     intervals: dict[str, list[float]] = {}
-    for (t0, prev), (t1, cur) in zip(samples, samples[1:]):
+    for (t0, prev), (t1, cur) in zip(samples, samples[1:], strict=False):
         per_pid = cpu_percent(prev, cur, t1 - t0, ncpu)
         totals: dict[str, float] = {}
         for p in cur:
@@ -677,16 +683,16 @@ def analyze(samples: list[tuple[float, list]], mem=None, perf=None, window_pids:
     stable = set.intersection(*({(p.pid, p.create_time) for p in procs} for _t, procs in samples))
     series: dict[str, list[int]] = {}
     for _t, procs in samples:
-        totals = {}
+        private: dict[str, int] = {}
         for p in procs:
             if (p.pid, p.create_time) in stable and p.accessible:
-                totals[program_key(p)] = totals.get(program_key(p), 0) + p.private
-        for key, value in totals.items():
-            series.setdefault(key, []).append(value)
-    for key, values in series.items():
-        if key in usage and len(values) >= 2:
-            usage[key].growth = values[-1] - values[0]
-            usage[key].steady = len(values) >= 3 and all(b >= a for a, b in zip(values, values[1:]))
+                private[program_key(p)] = private.get(program_key(p), 0) + p.private
+        for key, amount in private.items():
+            series.setdefault(key, []).append(amount)
+    for key, sizes in series.items():
+        if key in usage and len(sizes) >= 2:
+            usage[key].growth = sizes[-1] - sizes[0]
+            usage[key].steady = len(sizes) >= 3 and all(b >= a for a, b in zip(sizes, sizes[1:], strict=False))
 
     programs = sorted(usage.values(), key=lambda u: u.private, reverse=True)
     own_key = next((program_key(p) for p in last if p.pid == self_pid), "")

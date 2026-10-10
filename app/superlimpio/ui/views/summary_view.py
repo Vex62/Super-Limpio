@@ -3,6 +3,7 @@ from __future__ import annotations
 import shutil
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from ... import i18n, plat
 from ...processes import ProcessMonitor, group_by_program
@@ -16,7 +17,7 @@ class SummaryView(View):
     icon = "home"
     view_key = "summary"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("summary.title")
         self.subtitle = i18n.t("summary.subtitle")
@@ -91,7 +92,7 @@ class SummaryView(View):
         self.app.bg.run(self._collect, on_done=self._render,
                         on_error=lambda e: self.status(f"{i18n.t('common.error')}: {e}"))
 
-    def _collect(self):
+    def _collect(self) -> Any:
         drives = []
         for d in plat.list_drives():
             try:
@@ -105,7 +106,7 @@ class SummaryView(View):
         rb = plat.recycle_bin_info()
         return drives, mem, procs[:5], rb
 
-    def _render(self, data) -> None:
+    def _render(self, data: Any) -> None:
         drives, mem, top, rb = data
         for w in self.drives_box.winfo_children():
             w.destroy()

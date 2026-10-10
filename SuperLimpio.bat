@@ -9,16 +9,16 @@ setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
 
-rem Todo el código compilado en una sola carpeta (se puede borrar)
-set "PYTHONPYCACHEPREFIX=%~dp0runtime\_pycache"
-
+rem -I = modo aislado: Python no hace caso a PYTHONPATH, PYTHONSTARTUP ni a los paquetes
+rem del usuario, y no busca módulos en la carpeta actual. Es lo mismo que hace SuperLimpio.exe.
+rem (El código compilado va a runtime\_pycache: lo decide app\main.py.)
 set "PYW=%~dp0runtime\python\pythonw.exe"
 if exist "%PYW%" goto :run
 
-rem Sin Python portable: probar con un Python ya instalado en el equipo
-where pyw >nul 2>nul
+rem Sin Python portable: probar con un Python ya instalado en el equipo (3.11 o posterior)
+"%SystemRoot%\System32\where.exe" pyw >nul 2>nul
 if %errorlevel%==0 (
-    start "" pyw -3 "%~dp0app\main.py"
+    start "" pyw -3 -I "%~dp0app\main.py"
     exit /b 0
 )
 
@@ -30,5 +30,5 @@ pause
 exit /b 1
 
 :run
-start "" "%PYW%" "%~dp0app\main.py"
+start "" "%PYW%" -I "%~dp0app\main.py"
 exit /b 0

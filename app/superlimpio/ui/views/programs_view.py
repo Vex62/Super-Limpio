@@ -6,6 +6,7 @@ import os
 import threading
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from ... import i18n, programs, plat
 from ...safety import Risk, log_action
@@ -20,7 +21,7 @@ class ProgramsView(View):
     icon = "apps"
     view_key = "programs"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("programs.title")
         self.subtitle = i18n.t("programs.subtitle")
@@ -76,13 +77,13 @@ class ProgramsView(View):
         self.detail.pack(fill="x", padx=self.px(12), pady=self.px(8))
 
     @staticmethod
-    def _render(r) -> tuple:
+    def _render(r: Any) -> tuple:
         p: programs.Program = r["p"]
         real = fmt_size(p.real_size) if p.real_size is not None else ("…" if r.get("measuring") else "—")
         return (p.name, real, fmt_size(p.estimated_size) if p.estimated_size else "—", p.publisher,
                 p.version, p.install_date, p.scope_label, r["loc"])
 
-    def _match(self, r) -> bool:
+    def _match(self, r: Any) -> bool:
         q = self.q.get().strip().lower()
         if not q:
             return True
@@ -129,7 +130,7 @@ class ProgramsView(View):
             r["measuring"] = True
         self.table.refresh()
 
-        def work():
+        def work() -> None:
             cache: dict[str, int] = {}
             for i, r in enumerate(rows):
                 if ev.is_set():
@@ -144,7 +145,7 @@ class ProgramsView(View):
 
         self.app.bg.run(work, on_done=lambda _r: self._measure_end(ev), on_error=lambda _e: self._measure_end(ev))
 
-    def _measured(self, r, size: int, i: int, n: int) -> None:
+    def _measured(self, r: Any, size: int, i: int, n: int) -> None:
         r["p"].real_size = size
         r["measuring"] = False
         if i % 5 == 0 or i == n:
@@ -164,7 +165,7 @@ class ProgramsView(View):
         self.status(i18n.t("programs.measure_done"))
 
     # ------------------------------------------------------------ acciones
-    def _on_select(self, _e=None) -> None:
+    def _on_select(self, _e: Any = None) -> None:
         sel = self.table.selected()
         if not sel:
             return

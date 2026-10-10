@@ -12,6 +12,7 @@ import threading
 import time
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from ... import i18n, optimizer, startup, plat
 from ...optimizer import Action
@@ -29,7 +30,7 @@ class OptimizerView(View):
     icon = "boost"
     view_key = "optimizer"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("opt.title")
         self.subtitle = i18n.t("opt.subtitle")
@@ -45,7 +46,7 @@ class OptimizerView(View):
         self.nb.bind("<<NotebookTabChanged>>", lambda e: self._tab_changed())
 
     # ================================================================ análisis
-    def _build_analysis(self, tab) -> None:
+    def _build_analysis(self, tab: Any) -> None:
         self._an_stop: threading.Event | None = None
         self._report = None
         self._an_closing = False
@@ -154,7 +155,7 @@ class OptimizerView(View):
         self.an_lbl.configure(text=i18n.t("opt.an.running", s=seconds))
         is_admin = self.app.is_admin
 
-        def work():
+        def work() -> Any:
             samples = optimizer.take_samples(
                 count=seconds + 1, interval=1.0, should_stop=stop.is_set, sleep=stop.wait,
                 progress=lambda i, n: self.app.bg.call_in_ui(self._an_progress, i))
@@ -180,7 +181,7 @@ class OptimizerView(View):
         if self._an_stop is not None:
             self._an_stop.set()
 
-    def _an_done(self, report) -> None:
+    def _an_done(self, report: Any) -> None:
         self._an_stop = None
         if not self.winfo_exists():
             return
@@ -262,7 +263,7 @@ class OptimizerView(View):
                         on_done=lambda res: self._an_closed(plan, res, close_self),
                         on_error=lambda e: self._an_closed(plan, None))
 
-    def _an_closed(self, plan, res, close_self: bool = False) -> None:
+    def _an_closed(self, plan: Any, res: Any, close_self: bool = False) -> None:
         self._an_closing = False
         if not self.winfo_exists():
             return
@@ -285,7 +286,7 @@ class OptimizerView(View):
         if close_self:
             self.app.request_close(self)
 
-    def _system_summary(self, report) -> str:
+    def _system_summary(self, report: Any) -> str:
         parts = []
         mem, perf = report.mem, report.perf
         if mem:
@@ -299,7 +300,7 @@ class OptimizerView(View):
                                 handles=fmt_count(perf.handles)))
         return "\n".join(parts)
 
-    def _selected_finding(self):
+    def _selected_finding(self) -> Any:
         sel = self.find_tree.selection()
         return self._findings.get(sel[0]) if sel else None
 
@@ -318,7 +319,7 @@ class OptimizerView(View):
             self.app.show(f.goto)
 
     # ========================================================== modo eficiente
-    def _build_efficient(self, tab) -> None:
+    def _build_efficient(self, tab: Any) -> None:
         self.plan: optimizer.Plan | None = None
         self._snapshot = None
         self._targets: list[tuple[str, str]] = [("", i18n.t("opt.eff.no_target"))]
@@ -425,7 +426,7 @@ class OptimizerView(View):
             return
         self._eff_busy = True
 
-        def work():
+        def work() -> Any:
             before = plat.list_processes()
             t0 = time.monotonic()
             time.sleep(0.5)
@@ -435,7 +436,7 @@ class OptimizerView(View):
 
         self.app.bg.run(work, on_done=self._loaded, on_error=lambda e: setattr(self, "_eff_busy", False))
 
-    def _loaded(self, data) -> None:
+    def _loaded(self, data: Any) -> None:
         self._eff_busy = False
         if not self.winfo_exists():
             return
@@ -511,7 +512,7 @@ class OptimizerView(View):
         self.overrides.clear()
         self._rebuild_plan()
 
-    def _set_action(self, action: Action, rows=None) -> None:
+    def _set_action(self, action: Action, rows: Any = None) -> None:
         rows = self.eff_tbl.selected() if rows is None else rows
         if not rows:
             self.status(i18n.t("common.nothing_selected"))
@@ -529,7 +530,7 @@ class OptimizerView(View):
         if len(sel) == 1:   # el motivo completo, por si la columna no cabe
             self.status(f"{sel[0].name}: {i18n.t(sel[0].reason)}")
 
-    def _cycle(self, event) -> None:
+    def _cycle(self, event: Any) -> None:
         iid = self.eff_box.tree.identify_row(event.y)
         c = self.eff_tbl.visible.get(iid)
         if c is not None:
@@ -584,7 +585,7 @@ class OptimizerView(View):
         self.app.bg.run(lambda: optimizer.apply_plan(plan, opts), on_done=self._applied,
                         on_error=lambda e: self._applied(None))
 
-    def _applied(self, res) -> None:
+    def _applied(self, res: Any) -> None:
         self._eff_busy = self._applying = False
         if not self.winfo_exists():
             return

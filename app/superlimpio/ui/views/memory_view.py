@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from ... import criticality, i18n, plat
 from ...processes import ProcessMonitor, group_by_program
@@ -19,7 +20,7 @@ class MemoryView(View):
     icon = "memory"
     view_key = "memory"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("memory.title")
         self.subtitle = i18n.t("memory.subtitle")
@@ -97,7 +98,7 @@ class MemoryView(View):
         self.tree.tag_configure("m_mid", background=theme.ROW_MID)
         self.tree.bind("<<TreeviewSelect>>", lambda e: self._show_detail())
 
-    def _assess(self, r) -> criticality.Assessment:
+    def _assess(self, r: Any) -> criticality.Assessment:
         """Importancia del proceso (o del grupo) para el sistema. Se guarda por programa:
         la tabla se repinta cada 3 s y la respuesta no cambia."""
         mine = os.getpid() in r.pids
@@ -108,7 +109,7 @@ class MemoryView(View):
             found = self._assessed[key] = criticality.assess_process(r.name, r.path, pid, r.accessible, r.service)
         return found
 
-    def _tags(self, r) -> tuple:
+    def _tags(self, r: Any) -> tuple:
         level = int(self._assess(r).level)
         tags = [_mem_tag(r.private)] if r.accessible else []
         tags.append(f"lvl{level}" if level else ("" if r.accessible else "muted"))
@@ -129,7 +130,7 @@ class MemoryView(View):
         self.det_title.configure(text=head, fg=theme.LEVEL_COLORS[int(a.level)] if a.level else theme.TEXT)
         self.det_text.configure(text=a.text + ("" if allowed else " " + i18n.t("memory.detail_blocked")))
 
-    def _match(self, r) -> bool:
+    def _match(self, r: Any) -> bool:
         q = self.q.get().strip().lower()
         return not q or q in r.name.lower() or q in (r.path or "").lower()
 
@@ -154,17 +155,17 @@ class MemoryView(View):
             return
         self.busy = True
 
-        def work():
+        def work() -> Any:
             procs = self.monitor.sample()
             return procs, plat.memory_status()
 
         self.app.bg.run(work, on_done=self._render, on_error=self._failed)
 
-    def _failed(self, _exc) -> None:
+    def _failed(self, _exc: Any) -> None:
         self.busy = False
         self._schedule()   # un fallo puntual no debe parar el refresco automático
 
-    def _render(self, data) -> None:
+    def _render(self, data: Any) -> None:
         self.busy = False
         procs, mem = data
         procs = [p for p in procs if p.pid != 0]
@@ -210,7 +211,7 @@ class MemoryView(View):
                     why = a.text if a.level >= criticality.Level.IMPORTANT else why
                     blocked.append(f"{r.name} (PID {pid}): {why}")
                     continue
-                targets.append((pid, r.name))
+                targets.append((pid, r.name, r.created.get(pid) or None))
                 risk = max(risk, rk)
                 reasons.add(why)
                 if a.level >= criticality.Level.CAUTION:
@@ -224,7 +225,7 @@ class MemoryView(View):
         if not targets:
             self.app.request_close(self)
             return
-        details = "\n".join(f"PID {pid:>6}  {name}" for pid, name in targets[:60])
+        details = "\n".join(f"PID {pid:>6}  {name}" for pid, name, _born in targets[:60])
         if len(targets) > 60:
             details += i18n.t("memory.kill.more", n=len(targets) - 60)
         if warnings:
@@ -239,8 +240,10 @@ class MemoryView(View):
                                ok_text=i18n.t("memory.kill.ok")):
             return
         fails = []
-        for pid, name in targets:
-            ok, m = plat.terminate_process(pid)
+        for pid, name, born in targets:
+            # Con el instante de creación: si mientras el aviso estaba abierto el proceso
+            # terminó y su número pasó a otro programa, no se toca.
+            ok, m = plat.terminate_process(pid, born)
             log_action("finalizar_proceso", f"{name} ({pid})", m, ok=ok)
             if not ok:
                 fails.append(f"{name} ({pid}): {m}")

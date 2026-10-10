@@ -13,7 +13,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "app"))
 
-from superlimpio import cleaner, devdeps, i18n, plat, scanner  # noqa: E402
+from superlimpio import cleaner, devdeps, i18n, plat, safety, scanner  # noqa: E402
 from superlimpio.programs import Program, build_uninstall_plan, split_command  # noqa: E402
 from superlimpio.safety import check_deletable  # noqa: E402
 from superlimpio.util import fmt_size, text_bar  # noqa: E402
@@ -22,6 +22,25 @@ from superlimpio.plat import windows as _windows  # noqa: E402
 # Estas pruebas describen escenarios de Windows (nombres de proceso, rutas...). Se fija
 # su conocimiento para que den lo mismo en cualquier sistema; las de Linux lo cambian.
 plat.set_knowledge("windows")
+
+# El registro de acciones de las pruebas va a una carpeta temporal, no al del usuario.
+_LOGS = tempfile.TemporaryDirectory()
+safety.LOG_DIR = __import__("pathlib").Path(_LOGS.name) / "logs"
+
+
+def tearDownModule():
+    safety.close_log()
+    _LOGS.cleanup()
+
+
+def _link_dir(target, link):
+    """Enlace a una carpeta que cualquier usuario puede crear: junction en Windows, enlace
+    simbólico en Linux. (_winapi es interno de CPython: solo para pruebas.)"""
+    if sys.platform == "win32":
+        import _winapi
+        _winapi.CreateJunction(str(target), str(link))
+    else:
+        os.symlink(target, link, target_is_directory=True)
 
 
 def _aes_available():
@@ -102,15 +121,15 @@ class FormatTests(unittest.TestCase):
     def test_sizes_english(self):
         i18n.set_language("en")
         self.assertEqual(fmt_size(512), "512 B")
-        self.assertEqual(fmt_size(1536), "1.5 KB")
-        self.assertEqual(fmt_size(5 * 1024 ** 3), "5.0 GB")
+        self.assertEqual(fmt_size(1536), "1.5 KiB")
+        self.assertEqual(fmt_size(5 * 1024 ** 3), "5.0 GiB")
         self.assertEqual(text_bar(1, 2, 10), "█████░░░░░")
 
     def test_sizes_spanish(self):
         i18n.set_language("es")
-        self.assertEqual(fmt_size(1536), "1,5 KB")
-        self.assertEqual(fmt_size(5 * 1024 ** 3), "5,0 GB")
-        self.assertEqual(fmt_size(1500 * 1024 ** 2), "1,5 GB")
+        self.assertEqual(fmt_size(1536), "1,5 KiB")
+        self.assertEqual(fmt_size(5 * 1024 ** 3), "5,0 GiB")
+        self.assertEqual(fmt_size(1500 * 1024 ** 2), "1,5 GiB")
 
 
 class SafetyTests(unittest.TestCase):
@@ -149,19 +168,43 @@ class UninstallParsingTests(unittest.TestCase):
 
 
 class ElevationTests(unittest.TestCase):
-    def test_launcher_needs_no_script(self):
+    """Solo se eleva el auxiliar, con una orden concreta; nunca la ventana entera."""
+
+    def test_launcher_only_gets_the_order(self):
         from unittest import mock
         from superlimpio.plat import windows as winapi
         with mock.patch.object(sys, "executable", r"E:\SuperLimpio\SuperLimpio.exe"):
-            self.assertEqual(winapi.admin_command(r"E:\SuperLimpio\app\main.py"),
-                             (r"E:\SuperLimpio\SuperLimpio.exe", ""))
+            self.assertEqual(winapi.helper_command(r"E:\SuperLimpio\app\main.py", r"E:\o.json", "ab12"),
+                             (r"E:\SuperLimpio\SuperLimpio.exe", r'--auxiliar "E:\o.json" --sha256 ab12'))
 
-    def test_python_gets_the_script(self):
+    def test_python_runs_isolated(self):
         from unittest import mock
         from superlimpio.plat import windows as winapi
         with mock.patch.object(sys, "executable", r"E:\nada\pythonw.exe"):
-            self.assertEqual(winapi.admin_command(r"E:\app\main.py"),
-                             (r"E:\nada\pythonw.exe", r'"E:\app\main.py"'))
+            exe, params = winapi.helper_command(r"E:\app\main.py", r"E:\o.json", "ab12")
+        self.assertEqual(exe, r"E:\nada\pythonw.exe")
+        # «-I» delante del script: el proceso elevado no hace caso a PYTHONPATH ni al perfil del usuario
+        self.assertEqual(params, r'-I "E:\app\main.py" --auxiliar "E:\o.json" --sha256 ab12')
+
+    def test_no_whole_app_elevation_is_left(self):
+        from superlimpio.plat import linux, windows as winapi
+        for module in (winapi, linux):
+            self.assertFalse(hasattr(module, "relaunch_as_admin"))
+            self.assertFalse(hasattr(module, "admin_command"))
+
+    def test_system_programs_are_launched_by_full_path(self):
+        import ntpath
+        from superlimpio.plat import windows as winapi
+        for tool in winapi.system_tools():
+            if not tool["exe"].startswith("ms-settings:"):
+                self.assertTrue(ntpath.isabs(tool["exe"]) and ntpath.splitdrive(tool["exe"])[0], tool["exe"])
+        elevated = [t for t in winapi.system_tools() if t.get("admin")]
+        self.assertTrue(elevated)
+        for tool in elevated:   # ni el intérprete ni lo que lanza se buscan por nombre
+            self.assertRegex(tool["params"], r'^/k ""[A-Za-z]:\\.+\\(Dism|powercfg)\.exe" ')
+        plan = build_uninstall_plan(Program(name="X", uninstall_string="MsiExec.exe /X{11111111-2222-3333-4444-555555555555}"),
+                                    winapi.uninstall_command)
+        self.assertTrue(ntpath.isabs(plan.exe) and plan.exe.lower().endswith("\\msiexec.exe"), plan.exe)
 
 
 class DevDepsTests(unittest.TestCase):
@@ -1026,11 +1069,17 @@ class LinuxKnowledgeTests(unittest.TestCase):
         from superlimpio.plat import linux
         with mock.patch("shutil.which", lambda name: "/usr/bin/" + name):
             plan = build_uninstall_plan(Program(name="GIMP", scope="deb", reg_key="gimp"), linux.uninstall_command)
-            self.assertEqual(plan.display, "sudo apt-get remove gimp")
-            self.assertTrue(plan.exe and "sudo apt-get remove gimp" in plan.params)
-            plan = build_uninstall_plan(Program(name="X", scope="flatpak", reg_key="org.x.App; rm -rf ~"),
+            self.assertEqual(plan.display, "sudo apt-get remove -- gimp")   # «--»: el nombre nunca es una opción
+            self.assertTrue(plan.exe and "sudo apt-get remove -- gimp" in plan.params)
+            plan = build_uninstall_plan(Program(name="X", scope="flatpak", reg_key="org.gimp.GIMP"),
                                         linux.uninstall_command)
-            self.assertEqual(plan.display, "flatpak uninstall 'org.x.App; rm -rf ~'")   # entrecomillado: no se ejecuta
+            self.assertEqual(plan.display, "flatpak uninstall -- org.gimp.GIMP")
+            # Un nombre que no tiene forma de nombre de paquete no llega a ningún comando
+            for scope, bad in (("flatpak", "org.x.App; rm -rf ~"), ("deb", "--purge"), ("deb", "Gimp"),
+                               ("snap", "a b"), ("rpm", "-y"), ("pacman", "x;y")):
+                plan = build_uninstall_plan(Program(name="X", scope=scope, reg_key=bad), linux.uninstall_command)
+                self.assertEqual((plan.exe, plan.display), ("", ""), bad)
+                self.assertTrue(plan.warnings)
         plan = build_uninstall_plan(Program(name="Suelto", scope="user_app", reg_key="/home/ana/x.desktop"),
                                     linux.uninstall_command)
         self.assertEqual(plan.exe, "")                              # sin paquete no hay nada que lanzar
@@ -1159,23 +1208,23 @@ class LinuxPlatformTests(unittest.TestCase):
 
         self.assertEqual(argv_with({}), [])
         gnome = argv_with({"gnome-terminal": "/usr/bin/gnome-terminal", "xterm": "/usr/bin/xterm"})
-        self.assertEqual(gnome[:4], ["/usr/bin/gnome-terminal", "--", "sh", "-c"])
+        self.assertEqual(gnome[:4], ["/usr/bin/gnome-terminal", "--", "/bin/sh", "-c"])
         self.assertTrue(gnome[4].startswith("sudo apt-get clean; "))
         # La elegida por el usuario manda sobre el orden de la lista
         chosen = argv_with({"gnome-terminal": "/usr/bin/gnome-terminal", "x-terminal-emulator": "/usr/bin/x-t-e"},
                            real="/usr/bin/konsole")
-        self.assertEqual(chosen[:4], ["/usr/bin/x-t-e", "-e", "sh", "-c"])
+        self.assertEqual(chosen[:4], ["/usr/bin/x-t-e", "-e", "/bin/sh", "-c"])
         wrapped = argv_with({"x-terminal-emulator": "/usr/bin/x-t-e"}, real="/usr/bin/gnome-terminal.wrapper")
         self.assertEqual(wrapped[:2], ["/usr/bin/x-t-e", "-e"])
         direct = argv_with({"x-terminal-emulator": "/usr/bin/x-t-e"}, real="/usr/bin/ptyxis")
-        self.assertEqual(direct[:3], ["/usr/bin/x-t-e", "--", "sh"])
+        self.assertEqual(direct[:3], ["/usr/bin/x-t-e", "--", "/bin/sh"])
         # lxterminal vuelve a trocear lo que recibe: el comando va entero, entrecomillado
         single = argv_with({"lxterminal": "/usr/bin/lxterminal"})
         self.assertEqual(len(single), 3)
-        self.assertEqual(shlex.split(single[2])[:2], ["sh", "-c"])
+        self.assertEqual(shlex.split(single[2])[:2], ["/bin/sh", "-c"])
         self.assertEqual(shlex.split(single[2])[2], gnome[4])
         self.assertEqual(argv_with({"xdg-terminal-exec": "/usr/bin/xdg-terminal-exec",
-                                    "xterm": "/usr/bin/xterm"})[:2], ["/usr/bin/xdg-terminal-exec", "sh"])
+                                    "xterm": "/usr/bin/xterm"})[:2], ["/usr/bin/xdg-terminal-exec", "/bin/sh"])
 
     def test_desktop_entries_are_read_without_running_anything(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -6,6 +6,7 @@ import os
 import sys
 import tkinter as tk
 from tkinter import ttk
+from typing import Any
 
 from .. import APP_NAME, __version__, config, i18n, optimizer, plat
 from ..safety import Risk, log_action
@@ -28,7 +29,7 @@ _PAGES_SPEC = [
 
 
 class NavItem(tk.Frame):
-    def __init__(self, master, app: "App", key: str, glyph: str, text: str):
+    def __init__(self, master: Any, app: App, key: str, glyph: str, text: str) -> None:
         super().__init__(master, bg=theme.SIDEBAR_BG, cursor="hand2")
         self.app, self.key = app, key
         self.active = False
@@ -88,7 +89,7 @@ class App:
         self._build_everything(first=True)
         self._bind_shortcuts()
 
-        log_action("inicio", sys.executable, f"admin={self.is_admin}")
+        log_action("inicio", sys.executable, f"admin={self.is_admin}", ok=not self.is_admin)
         self.show("summary")
         self.root.after(800, self._watch_window)
 
@@ -113,7 +114,7 @@ class App:
         if first:
             self._place_initial()
 
-        self.pages: dict = {}
+        self.pages: dict[str, Any] = {}
         self._build_shell()
         self._build_pages()
 
@@ -132,8 +133,8 @@ class App:
         for page in list(self.pages.values()):
             try:
                 page.shutdown()
-            except Exception:  # noqa: BLE001 - una página rota no debe impedir cerrar o reconstruir
-                pass
+            except Exception as exc:  # noqa: BLE001 - una página rota no debe impedir cerrar o reconstruir
+                log_action("error_interno", type(page).__name__, f"shutdown: {exc!r}", ok=False)
         self.bg.reset()
 
     def _pending(self) -> list[str]:
@@ -204,8 +205,8 @@ class App:
 
     def _bind_shortcuts(self) -> None:
         """Ctrl + / Ctrl − / Ctrl 0 cambian el tamaño aunque la barra lateral no quepa entera."""
-        def key(seqs: tuple[str, ...], fn) -> None:
-            def handler(_e):
+        def key(seqs: tuple[str, ...], fn: Any) -> None:
+            def handler(_e: Any) -> Any:
                 fn()
                 return "break"
             for seq in seqs:
@@ -262,11 +263,12 @@ class App:
         state = i18n.t("app.role.admin") if self.is_admin else i18n.t("app.role.user")
         tk.Label(bottom, text=f"{self.fonts.glyph('shield')}  {state}", font=self.fonts.small,
                  fg=color, bg=theme.SIDEBAR_BG, anchor="w").pack(fill="x", pady=(int(10 * sf), 0))
-        if not self.is_admin and plat.capabilities()["elevate"]:
-            lnk = tk.Label(bottom, text=i18n.t("app.relaunch_admin_link"), font=self.fonts.small,
-                           fg=theme.AGUA, bg=theme.SIDEBAR_BG, cursor="hand2", anchor="w")
-            lnk.pack(fill="x", pady=(4, 0))
-            lnk.bind("<Button-1>", lambda e: self.relaunch_admin())
+        if self.is_admin:
+            # La aplicación no necesita administrador: lo que lo requiere lo hace un auxiliar
+            # aparte, operación a operación. Si se ha abierto así, se avisa.
+            warn = tk.Label(bottom, text=i18n.t("app.admin_warning"), font=self.fonts.small, fg=theme.WARN,
+                            bg=theme.SIDEBAR_BG, anchor="w", justify="left", wraplength=int(196 * sf))
+            warn.pack(fill="x", pady=(4, 0))
 
         self.main = ttk.Frame(self.root, style="TFrame")
         self.main.pack(side="left", fill="both", expand=True)
@@ -318,7 +320,7 @@ class App:
         elif self.status_var.get() == i18n.t("app.ui_size_hint"):
             self.set_status(getattr(self, "_status_before", i18n.t("common.ready")))
 
-    def _on_language(self, _e=None) -> None:
+    def _on_language(self, _e: Any = None) -> None:
         name = self.lang_var.get()
         if not self._can_rebuild():
             self.lang_var.set(dict(i18n.available())[i18n.current()])
@@ -366,7 +368,7 @@ class App:
             self.nav[key] = item
         self.root.after_idle(self._fit_nav)
 
-    def _fit_nav(self, _e=None) -> None:
+    def _fit_nav(self, _e: Any = None) -> None:
         """Si las secciones no caben a lo alto (ventana baja o tamaño grande), se aprietan
         en vez de quedar tapadas: el espacio entre ellas se reparte según el sitio que hay."""
         items = list(self.nav.values())
@@ -416,7 +418,7 @@ class App:
         elif bottom > first + view:
             self.nav_canvas.yview_moveto((bottom - view) / total)
 
-    def page(self, key: str):
+    def page(self, key: str) -> Any:
         page = self.pages.get(key)
         if page is None:
             page = self.pages[key] = self._page_classes[key](self.content, self)
@@ -442,20 +444,12 @@ class App:
     def set_status(self, text: str) -> None:
         self.status_var.set(text)
 
-    def relaunch_admin(self) -> None:
-        script = os.path.abspath(sys.argv[0])
-        ok = dialogs.confirm(
-            self.root, i18n.t("app.relaunch.title"), i18n.t("app.relaunch.body"),
-            details='"{}" {}'.format(*plat.admin_command(script)).strip(), risk=Risk.ALTO,
-            ok_text=i18n.t("app.relaunch.ok"))
-        if not ok or not self._confirm_exit():   # esta ventana se va a cerrar: mismas preguntas que al salir
-            return
-        done, msg = plat.relaunch_as_admin(script)
-        log_action("reiniciar_admin", script, msg, ok=done)
-        if done:
-            self.root.after(300, self._shutdown)
-        else:
-            dialogs.error(self.root, i18n.t("app.relaunch.failed"), msg)
+    def terminate(self) -> None:
+        """El sistema pide que el proceso termine (SIGTERM, apagado): cierre ordenado y sin
+        preguntas. Se detienen los trabajos en marcha, que paran en un punto coherente."""
+        if not self._closing:
+            log_action("cierre", "señal del sistema", ", ".join(self._pending()) or "sin operaciones en marcha")
+            self.root.after(0, self._shutdown)
 
     # -------------------------------------------------------------------- salir
     def request_close(self, parent: tk.Misc | None = None) -> None:

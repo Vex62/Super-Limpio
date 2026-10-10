@@ -19,7 +19,7 @@ from . import theme, winframe
 
 class ConfirmDialog(tk.Toplevel):
     def __init__(self, parent: tk.Misc, title: str, message: str, details: str, risk: Risk,
-                 ok_text: str, fonts: theme.Fonts, sf: float):
+                 ok_text: str, fonts: theme.Fonts, sf: float) -> None:
         super().__init__(parent)
         self.result = False
         self.risk = risk

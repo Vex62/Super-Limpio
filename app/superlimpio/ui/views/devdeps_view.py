@@ -6,6 +6,7 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
+from typing import Any
 
 from ... import devdeps, fileops, i18n, plat
 from ...safety import Risk
@@ -21,7 +22,7 @@ class DevDepsView(View):
     icon = "code"
     view_key = "devdeps"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("devdeps.title")
         self.subtitle = i18n.t("devdeps.subtitle")
@@ -92,7 +93,7 @@ class DevDepsView(View):
         self.checked.clear()
         self.table.set_rows([])
 
-        def progress(cur, n):
+        def progress(cur: Any, n: Any) -> None:
             self.app.bg.call_in_ui(self.info.configure,
                                    {"text": i18n.t("devdeps.searching", n=n, cur=cur[-100:])})
 
@@ -107,7 +108,7 @@ class DevDepsView(View):
         self.go.configure(text=i18n.t("common.search"))
         self.info.configure(text=f"{i18n.t('common.error')}: {exc}")
 
-    def _done(self, arts) -> None:
+    def _done(self, arts: Any) -> None:
         self.cancel_ev = None
         self.go.configure(text=i18n.t("common.search"))
         self.table.set_rows(arts)
@@ -116,7 +117,7 @@ class DevDepsView(View):
         self.status(i18n.t("devdeps.status", total=fmt_size(total)))
 
     # ----------------------------------------------------------- marcas
-    def _click(self, e):
+    def _click(self, e: Any) -> Any:
         if self.tree.identify_region(e.x, e.y) == "cell" and self.tree.identify_column(e.x) == "#1":
             iid = self.tree.identify_row(e.y)
             if iid:
@@ -124,7 +125,7 @@ class DevDepsView(View):
                 return "break"
         return None
 
-    def _toggle(self, iids) -> None:
+    def _toggle(self, iids: Any) -> None:
         for iid in iids:
             a = self.table.visible.get(iid)
             if not a:
@@ -187,10 +188,11 @@ class DevDepsView(View):
         self.pbar.configure(mode="indeterminate")
         self.pbar.start(12)
         self.status(i18n.t("common.deleting"))
-        self.app.bg.run(lambda: fn([a.path for a in sel]), on_done=lambda r: self._deleted(sel, r),
+        ev = self._del_cancel = threading.Event()   # View.shutdown lo activa si la ventana se cierra
+        self.app.bg.run(lambda: fn([a.path for a in sel], ev), on_done=lambda r: self._deleted(sel, r),
                         on_error=lambda e: self._deleted(sel, (False, str(e))))
 
-    def _deleted(self, sel, res) -> None:
+    def _deleted(self, sel: Any, res: Any) -> None:
         ok, msg = res
         self.pbar.stop()
         self.pbar.configure(mode="determinate", value=0)   # parada, la barra queda vacía

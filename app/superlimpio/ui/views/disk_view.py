@@ -11,8 +11,9 @@ import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, ttk
+from typing import Any
 
-from ... import criticality, fileops, i18n, scanner, plat
+from ... import criticality, fileops, helper, i18n, scanner, plat
 from ...safety import Risk
 from ...util import fmt_count, fmt_date, fmt_pct, fmt_size, text_bar
 from .. import compress_dialog, dialogs, theme
@@ -28,7 +29,7 @@ class DiskView(View):
     icon = "drive"
     view_key = "disk"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("disk.title")
         self.subtitle = i18n.t("disk.subtitle")
@@ -37,6 +38,7 @@ class DiskView(View):
         self.items: dict[str, tuple] = {}   # iid -> ("dir", node) | ("file", node, rec) | ("rest", node)
         self.node_iid: dict[int, str] = {}  # id(node) -> iid
         self._deleting = False
+        self._del_cancel: threading.Event | None = None   # detiene un borrado a mitad de lote
 
         # ---- barra de direcciones (estilo Explorador)
         bar = self.toolbar()
@@ -202,11 +204,11 @@ class DiskView(View):
         self.status(i18n.t("disk.analyzing_status", path=path))
         ev = self.cancel_ev
 
-        def progress_ui(kw: dict) -> None:
+        def progress_ui(kw: dict[str, Any]) -> None:
             if ev is self.cancel_ev:   # el avance de un análisis ya sustituido no se enseña
                 self.prog_lbl.configure(**kw)
 
-        def progress(p: scanner.ScanProgress):
+        def progress(p: scanner.ScanProgress) -> None:
             txt = i18n.t("disk.scan_progress", files=fmt_count(p.files), dirs=fmt_count(p.dirs),
                          bytes=fmt_size(p.bytes), secs=f"{p.elapsed:.0f}", current=p.current[-90:])
             self.app.bg.call_in_ui(progress_ui, {"text": txt})
@@ -219,6 +221,9 @@ class DiskView(View):
         return i18n.t("app.pending.delete") if self._deleting else ""
 
     def _cancel(self) -> None:
+        if self._del_cancel is not None:   # hay un borrado en marcha: se detiene tras el elemento actual
+            self._del_cancel.set()
+            self.prog_lbl.configure(text=i18n.t("disk.stopping"))
         if self.cancel_ev:
             self.cancel_ev.set()
             self.prog_lbl.configure(text=i18n.t("disk.stopping"))
@@ -250,8 +255,9 @@ class DiskView(View):
         if res.cancelled:
             extra.append(i18n.t("disk.extra.cancelled"))
         if res.errors:
-            extra.append(i18n.t("disk.extra.errors", n=fmt_count(res.errors))
-                         + ("" if self.app.is_admin else i18n.t("disk.extra.errors_admin")))
+            extra.append(i18n.t("disk.extra.errors", n=fmt_count(res.errors)))
+        if res.skipped_mounts:
+            extra.append(i18n.t("disk.extra.mounts", n=fmt_count(res.skipped_mounts)))
         if res.cloud_size:
             extra.append(i18n.t("disk.extra.cloud", size=fmt_size(res.cloud_size)))
         if res.skipped_links:
@@ -290,7 +296,7 @@ class DiskView(View):
     def _dir_tags(self, node: scanner.DirNode) -> tuple:
         return theme.size_tag(node.size), "bar", _system_mark(node.path)[1]
 
-    def _insert_dir(self, parent: str, node: scanner.DirNode, parent_size: int, index="end") -> str:
+    def _insert_dir(self, parent: str, node: scanner.DirNode, parent_size: int, index: Any = "end") -> str:
         iid = self.tree.insert(parent, index, text=f" {node.name}", image=self.app.icons["folder"],
                                values=self._dir_values(node, parent_size), tags=self._dir_tags(node))
         self.items[iid] = ("dir", node)
@@ -310,7 +316,7 @@ class DiskView(View):
         entries.sort(key=lambda e: e[0], reverse=True)
         self._insert_page(iid, node, entries)
 
-    def _insert_page(self, iid: str, node: scanner.DirNode, entries: list) -> None:
+    def _insert_page(self, iid: str, node: scanner.DirNode, entries: list[Any]) -> None:
         """Inserta las PAGE filas siguientes. Las carpetas con miles de elementos (WinSxS,
         node_modules…) se cargan por tramos para que la ventana no se quede parada."""
         for _size, kind, obj in entries[:PAGE]:
@@ -346,12 +352,12 @@ class DiskView(View):
                                    tags=("muted", "bar"))
             self.items[rid] = ("rest", node)
 
-    def _on_open(self, _e=None) -> None:
+    def _on_open(self, _e: Any = None) -> None:
         iid = self.tree.focus()
         if iid in self.items and self.items[iid][0] == "dir":
             self._populate(iid)
 
-    def _on_double(self, e) -> None:
+    def _on_double(self, e: Any) -> None:
         iid = self.tree.identify_row(e.y)
         if iid in self.items and self.items[iid][0] == "file":
             self._open()
@@ -380,7 +386,7 @@ class DiskView(View):
         tab = self.nb.index(self.nb.select())
         return self.tree if tab == 0 else (self.files_box.tree if tab == 1 else None)
 
-    def _selected(self) -> list[dict]:
+    def _selected(self) -> list[dict[str, Any]]:
         """Elementos seleccionados como {path, size, is_dir, ref}."""
         out = []
         tree = self._active_tree()
@@ -408,7 +414,7 @@ class DiskView(View):
         self.tree.delete(mid)
         self._insert_page(parent, node, rest)
 
-    def _on_select(self, _e=None) -> None:
+    def _on_select(self, _e: Any = None) -> None:
         picked = self.tree.selection()
         if len(picked) == 1 and self.items.get(picked[0], ("",))[0] == "more":
             self._load_more(picked[0])
@@ -431,7 +437,7 @@ class DiskView(View):
             self.sel_info.configure(text="")
         self._set_actions(True, single_dir=len(sel) == 1 and sel[0]["is_dir"])
 
-    def _show_risk(self, sel: list[dict]) -> None:
+    def _show_risk(self, sel: list[dict[str, Any]]) -> None:
         """Explica qué es lo seleccionado para el sistema y qué pasa si se borra."""
         if not sel:
             self.sel_risk.configure(text="", fg=theme.MUTED)
@@ -447,7 +453,7 @@ class DiskView(View):
             text = f"{WARN_MARK} {text}"
         self.sel_risk.configure(text=text, fg=theme.LEVEL_COLORS[int(a.level)] if a.system else theme.MUTED)
 
-    def _delicate(self, sel: list[dict]) -> tuple[str, str]:
+    def _delicate(self, sel: list[dict[str, Any]]) -> tuple[str, str]:
         """(aviso para el mensaje, líneas para el detalle) de lo seleccionado que no es un
         archivo corriente: datos de programas, perfiles de otros usuarios..."""
         lines = []
@@ -466,7 +472,7 @@ class DiskView(View):
             b.state(["!disabled"] if enabled else ["disabled"])
         self.btn_scan_here.state(["!disabled"] if (single_dir and not self._deleting) else ["disabled"])
 
-    def _context_menu(self, e) -> None:
+    def _context_menu(self, e: Any) -> None:
         tree = e.widget
         iid = tree.identify_row(e.y)
         if iid and iid not in tree.selection():
@@ -519,7 +525,7 @@ class DiskView(View):
             return
         self._do_delete(sel, fileops.recycle)
 
-    def _check_blocked(self, sel: list[dict]) -> bool:
+    def _check_blocked(self, sel: list[dict[str, Any]]) -> bool:
         _ok, blocked = fileops.validate([s["path"] for s in sel])
         if blocked:
             dialogs.error(self, i18n.t("disk.blocked_title"),
@@ -560,7 +566,7 @@ class DiskView(View):
             return
         self._do_delete(sel, fileops.delete_permanently)
 
-    def _do_delete(self, sel: list[dict], fn) -> None:
+    def _do_delete(self, sel: list[dict[str, Any]], fn: Any) -> None:
         # Indicador de operación en curso: barra indeterminada + botones deshabilitados.
         self._deleting = True
         self._set_actions(False)
@@ -568,15 +574,21 @@ class DiskView(View):
         self.pbar.start(12)
         self.prog_lbl.configure(text=i18n.t("common.deleting"))
         self.status(i18n.t("common.deleting"))
-        self.app.bg.run(lambda: fn([s["path"] for s in sel]),
-                        on_done=lambda r: self._after_delete(sel, r),
-                        on_error=lambda e: self._after_delete(sel, (False, str(e))))
+        ev = self._del_cancel = threading.Event()
+        self.cancel_btn.state(["!disabled"])
+        permanent = fn is fileops.delete_permanently
+        self.app.bg.run(lambda: fn([s["path"] for s in sel], ev),
+                        on_done=lambda r: self._after_delete(sel, r, permanent),
+                        on_error=lambda e: self._after_delete(sel, (False, str(e)), False))
 
-    def _after_delete(self, sel: list[dict], res: tuple[bool, str]) -> None:
+    def _after_delete(self, sel: list[dict[str, Any]], res: tuple[bool, str], permanent: bool = False) -> None:
         ok, msg = res
+        stopped = self._del_cancel is not None and self._del_cancel.is_set()
+        self._del_cancel = None
         # Actualiza la pantalla cuanto antes para reflejar lo que ya no está.
         if self.cancel_ev is None:   # si hay un análisis en marcha, la barra sigue siendo suya
             self._idle_bar()
+            self.cancel_btn.state(["disabled"])
         self._deleting = False
         removed = [s for s in sel if not os.path.exists(s["path"])]
         for s in removed:
@@ -588,9 +600,38 @@ class DiskView(View):
                            removed=len(removed), total=len(sel)))
         if not ok:
             dialogs.error(self, i18n.t("common.result"), msg)
+            left = [s for s in sel if os.path.lexists(s["path"])]
+            if permanent and left and not stopped and not self.app.is_admin and helper.available():
+                self._offer_elevated_delete(left)
         self._on_select()
 
-    def _remove_from_model(self, s: dict) -> None:
+    def _offer_elevated_delete(self, left: list[dict[str, Any]]) -> None:
+        """Lo que no se pudo borrar (casi siempre por permisos) se puede encargar al auxiliar
+        elevado. Es otra acción: se enseña exactamente qué rutas y se vuelve a confirmar. El
+        auxiliar las comprueba de nuevo con las mismas reglas de rutas protegidas."""
+        if self._check_blocked(left):
+            return
+        paths = [s["path"] for s in left]
+        details = (dialogs.summarize_paths(paths, [s["size"] for s in left]) + "\n\n"
+                   + helper.describe(helper.delete_order(paths)))
+        if not dialogs.confirm(self, i18n.t("disk.elevated.title"),
+                               i18n.t("disk.elevated.body", n=len(left)), details,
+                               risk=Risk.CRITICO, ok_text=i18n.t("disk.delete.ok")):
+            return
+        self._deleting = True
+        self._set_actions(False)
+        self.pbar.configure(mode="indeterminate")
+        self.pbar.start(12)
+        self.prog_lbl.configure(text=i18n.t("common.deleting"))
+        order = helper.delete_order(paths)
+
+        def done(result: dict[str, Any]) -> None:
+            self._after_delete(left, (bool(result.get("ok")), str(result.get("msg", ""))), False)
+
+        self.app.bg.run(lambda: helper.run(order), on_done=done,
+                        on_error=lambda e: self._after_delete(left, (False, str(e)), False))
+
+    def _remove_from_model(self, s: dict[str, Any]) -> None:
         """Quita el elemento de las vistas y descuenta su tamaño de las carpetas padre."""
         path = s["path"]
         if self.result:

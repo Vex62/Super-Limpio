@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import Any
 
 from . import i18n, plat
-from .plat.windows import split_command  # noqa: F401 - forma parte de la interfaz de este módulo
+from .plat.windows_know import split_command
 from .util import expand
 
 
@@ -74,8 +75,11 @@ class UninstallPlan:
     critical: bool = False   # True si el desinstalador usa un intérprete de comandos
 
 
-def build_uninstall_plan(p: Program, command=None) -> UninstallPlan:
+def build_uninstall_plan(p: Program, command: Any = None) -> UninstallPlan:
     """Qué se va a ejecutar para desinstalar. «command» permite fijar la plataforma (tests)."""
     exe, params, warnings, critical, *shown = (command or plat.uninstall_command)(p)
     display = shown[0] if shown else (f'"{exe}" {params}'.strip() if exe else "")
     return UninstallPlan(exe, params, display, warnings, critical)
+
+
+__all__ = ["Program", "UninstallPlan", "build_uninstall_plan", "list_installed", "split_command"]

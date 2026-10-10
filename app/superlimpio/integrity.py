@@ -7,9 +7,19 @@ solo tiene quien publica. La app verifica al arrancar que:
   1) la firma del manifiesto es válida para la clave pública incrustada aquí, y
   2) cada archivo listado conserva su hash.
 
-Si alguien modifica, añade o sustituye un archivo de una copia publicada, la firma deja
-de cuadrar y la app se niega a continuar. Todo con biblioteca estándar (Ed25519 en Python
-puro), sin dependencias.
+Si alguien modifica o sustituye un archivo de una copia publicada, o AÑADE uno dentro de
+la carpeta «app» (un .py junto a un .pyc firmado se cargaría en su lugar), la app se niega
+a continuar. Todo con biblioteca estándar (Ed25519 en Python puro), sin dependencias.
+
+Qué NO cubre: la carpeta «runtime» (el Python portable, cuyos binarios ya van firmados por
+la Python Software Foundation) y cualquier comprobación que alguien desactive editando
+este mismo archivo. Es una barrera contra copias manipuladas, no un sustituto de la firma
+Authenticode del ejecutable.
+
+Sobre la criptografía propia: la biblioteca estándar no trae Ed25519 y la aplicación no
+admite dependencias, así que aquí va la implementación de referencia del RFC 8032. Solo
+se usa para VERIFICAR con una clave pública (no hay secretos que filtrar por tiempo); la
+firma se hace en el equipo de quien publica.
 
 Límite honesto: cualquier protección que se ejecute en el propio equipo del usuario puede,
 en teoría, desactivarse si se edita el código verificador y se vuelve a firmar con otra
@@ -126,7 +136,7 @@ def ed25519_sign(secret: bytes, msg: bytes) -> bytes:
     r = _hint(h[32:64] + msg)
     big_r = _scalarmult(_B, r)
     s = (r + _hint(_encode_point(big_r) + public + msg) * a) % _L
-    return _encode_point(big_r) + s.to_bytes(32, "little")
+    return _encode_point(big_r) + int(s).to_bytes(32, "little")
 
 
 def ed25519_verify(public: bytes, msg: bytes, signature: bytes) -> bool:
@@ -138,6 +148,8 @@ def ed25519_verify(public: bytes, msg: bytes, signature: bytes) -> bool:
     except ValueError:
         return False
     s = int.from_bytes(signature[32:], "little")
+    if s >= _L:   # RFC 8032: una firma con S fuera de rango no es válida (evita firmas «gemelas»)
+        return False
     h = _hint(signature[:32] + public + msg)
     left = _scalarmult(_B, s)
     right = _edwards(big_r, _scalarmult(a, h))
@@ -166,8 +178,37 @@ def hash_tree(root: str, rel_paths: list[str]) -> dict[str, str]:
             if os.path.isfile(os.path.join(root, rel))}
 
 
+_MAX_MANIFEST = 8 * 1024 * 1024
+# Lo que puede aparecer dentro de «app» sin estar en el manifiesto: el propio manifiesto.
+_UNSIGNED_DIRS = {"_integrity"}
+# En la carpeta de la aplicación, junto al ejecutable, estos tipos de archivo se cargarían
+# como código al arrancar: si no están firmados, no deben estar.
+_CODE_SUFFIXES = (".dll", ".pyd", ".pth", ".py", ".pyc", ".exe")
+
+
+def unexpected_files(root: str, listed: set[str]) -> list[str]:
+    """Archivos que no figuran en el manifiesto y que el intérprete podría cargar: todo lo
+    que haya dentro de «app», y el código suelto junto al ejecutable."""
+    extra: list[str] = []
+    app = os.path.join(root, "app")
+    for folder, dirs, names in os.walk(app):
+        dirs[:] = [d for d in dirs if d not in _UNSIGNED_DIRS]
+        for name in names:
+            rel = os.path.relpath(os.path.join(folder, name), root).replace(os.sep, "/")
+            if rel not in listed:
+                extra.append(rel)
+    try:
+        for name in os.listdir(root):
+            if name not in listed and name.lower().endswith(_CODE_SUFFIXES) \
+                    and os.path.isfile(os.path.join(root, name)):
+                extra.append(name)
+    except OSError:
+        extra.append(".")   # no se puede comprobar: se trata como manipulada
+    return sorted(extra)
+
+
 class IntegrityResult:
-    def __init__(self, ok: bool, enforced: bool, detail: str = ""):
+    def __init__(self, ok: bool, enforced: bool, detail: str = "") -> None:
         self.ok = ok
         self.enforced = enforced   # False = no hay manifiesto firmado (modo desarrollo)
         self.detail = detail
@@ -178,9 +219,13 @@ def verify_distribution() -> IntegrityResult:
     if not PUBLIC_KEY_HEX or not (os.path.isfile(MANIFEST_PATH) and os.path.isfile(SIGNATURE_PATH)):
         return IntegrityResult(True, enforced=False)
     try:
-        manifest_bytes = open(MANIFEST_PATH, "rb").read()
-        signature = bytes.fromhex(open(SIGNATURE_PATH, encoding="ascii").read().strip())
+        with open(MANIFEST_PATH, "rb") as fh:
+            manifest_bytes = fh.read(_MAX_MANIFEST + 1)
+        with open(SIGNATURE_PATH, encoding="ascii") as fh:
+            signature = bytes.fromhex(fh.read(1024).strip())
         public = bytes.fromhex(PUBLIC_KEY_HEX.strip())
+        if len(manifest_bytes) > _MAX_MANIFEST:
+            raise ValueError("manifiesto demasiado grande")
     except (OSError, ValueError):
         from . import i18n
         return IntegrityResult(False, enforced=True, detail=i18n.t("integrity.bad_signature"))
@@ -190,8 +235,9 @@ def verify_distribution() -> IntegrityResult:
         return IntegrityResult(False, enforced=True, detail=i18n.t("integrity.bad_signature"))
 
     manifest = json.loads(manifest_bytes.decode("utf-8"))
+    listed = manifest.get("files", {})
     changed = 0
-    for rel, expected in manifest.get("files", {}).items():
+    for rel, expected in listed.items():
         full = os.path.join(str(APP_ROOT), rel)
         try:
             if not os.path.isfile(full) or _sha256(full) != expected:
@@ -200,4 +246,8 @@ def verify_distribution() -> IntegrityResult:
             changed += 1
     if changed:
         return IntegrityResult(False, enforced=True, detail=i18n.t("integrity.changed_files", n=changed))
+    extra = unexpected_files(str(APP_ROOT), set(listed))
+    if extra:
+        return IntegrityResult(False, enforced=True,
+                               detail=i18n.t("integrity.extra_files", n=len(extra), first=extra[0]))
     return IntegrityResult(True, enforced=True)

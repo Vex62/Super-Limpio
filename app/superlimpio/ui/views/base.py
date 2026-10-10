@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import tkinter as tk
 from tkinter import ttk
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from ... import config
 from .. import theme
@@ -17,7 +17,7 @@ class View(ttk.Frame):
     icon = "home"
     view_key = ""
 
-    def __init__(self, master, app: "App"):
+    def __init__(self, master: Any, app: App) -> None:
         super().__init__(master, style="TFrame")
         self.app = app
         self.sf = app.sf
@@ -45,7 +45,7 @@ class View(ttk.Frame):
         """La vista se va a destruir (cierre, cambio de idioma o de tamaño): se cancelan los
         análisis en segundo plano para que no sigan trabajando para nadie."""
         self.on_hide()
-        for name in ("cancel_ev", "_an_stop"):
+        for name in ("cancel_ev", "_an_stop", "_del_cancel"):
             ev = getattr(self, name, None)
             if ev is not None:
                 ev.set()
@@ -54,7 +54,7 @@ class View(ttk.Frame):
     def px(self, n: int | float) -> int:
         return int(n * self.sf)
 
-    def toolbar(self, parent=None) -> ttk.Frame:
+    def toolbar(self, parent: Any = None) -> ttk.Frame:
         bar = ttk.Frame(parent or self)
         bar.pack(fill="x", pady=(0, self.px(10)))
         return bar
@@ -62,7 +62,7 @@ class View(ttk.Frame):
     def status(self, text: str) -> None:
         self.app.set_status(text)
 
-    def note(self, parent, text: str) -> tk.Label:
+    def note(self, parent: Any, text: str) -> tk.Label:
         lbl = tk.Label(parent, text=text, bg=theme.BG, fg=theme.MUTED, font=self.fonts.small,
                        anchor="w", justify="left", wraplength=self.px(900))
         # El texto se ajusta al ancho real: en ventanas estrechas no se corta por la derecha.
@@ -73,13 +73,13 @@ class View(ttk.Frame):
         """Recuerda y restaura la posición de un divisor arrastrable de esta vista."""
         key = self.view_key or type(self).__name__
 
-        def restore():
+        def restore() -> None:
             try:
                 pw.sashpos(0, int(config.get_sash(key, name, self.px(default_px))))
             except tk.TclError:
                 pass
 
-        def save(_e=None):
+        def save(_e: Any = None) -> None:
             try:
                 config.set_sash(key, name, pw.sashpos(0))
             except tk.TclError:

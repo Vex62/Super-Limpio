@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from tkinter import ttk
+from typing import Any
 
 from ... import i18n, plat
+from ... import safety
 from ...safety import read_log
-from ...util import LOG_DIR
 from ..widgets import ScrollTree, SortableTable
 from .base import View
 
@@ -13,7 +14,7 @@ class LogView(View):
     icon = "log"
     view_key = "log"
 
-    def __init__(self, master, app):
+    def __init__(self, master: Any, app: Any) -> None:
         super().__init__(master, app)
         self.title = i18n.t("log.title")
         self.subtitle = i18n.t("log.subtitle")
@@ -38,7 +39,13 @@ class LogView(View):
 
     def load(self) -> None:
         self.table.set_rows(read_log(1000))
+        if safety.log_failures:   # disco lleno o carpeta sin permiso: que no pase inadvertido
+            self.status(i18n.t("log.write_failed", n=safety.log_failures, path=str(safety.LOG_DIR)))
 
     def _open(self) -> None:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
-        plat.open_in_explorer(str(LOG_DIR))
+        try:
+            safety.LOG_DIR.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.status(f"{i18n.t('common.error')}: {exc.strerror or exc}")
+            return
+        plat.open_in_explorer(str(safety.LOG_DIR))
