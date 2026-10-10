@@ -2,25 +2,34 @@
 
 <img src="launcher/logo.png" alt="Logo de Super Limpio" width="160">
 
-Aplicación de escritorio para **Windows 11** que enseña de un vistazo qué ocupa espacio y memoria en tu equipo, y ayuda a limpiarlo de forma segura. Aspecto inspirado en CCleaner (barra lateral de navegación) y en el Explorador de archivos (árbol de carpetas con el **peso total de cada carpeta**).
+Aplicación de escritorio para **Windows 10/11** y **Linux** que enseña de un vistazo qué ocupa espacio y memoria en tu equipo, y ayuda a limpiarlo de forma segura. Aspecto inspirado en CCleaner (barra lateral de navegación) y en el Explorador de archivos (árbol de carpetas con el **peso total de cada carpeta**).
 
 Todo es **local**: la app no se conecta a Internet, no instala servicios, no se queda en segundo plano y no modifica el registro.
 
-## Cómo abrirla, paso a paso
+## Descargas
+
+Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.3.0**:
+
+| Sistema | Release | Archivo | Cómo se abre |
+|---|---|---|---|
+| Windows 10 y 11 (64 bits) | [Super Limpio 1.3.0 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.3.0-windows) | `SuperLimpio-1.3.0-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
+| Linux | [Super Limpio 1.3.0 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.3.0-linux) | `SuperLimpio-1.3.0-linux.tar.gz` (unos 200 KB, usa el Python del sistema) | [Linux](#linux) |
+
+Los dos paquetes van **firmados**: llevan un manifiesto con la huella de cada archivo y la aplicación lo comprueba al arrancar. Si alguien ha modificado algo, se niega a continuar.
+
+## Cómo abrirla en Windows, paso a paso
 
 Funciona en Windows 10 y 11 de 64 bits. No se instala nada: todo vive dentro de una carpeta que puedes poner en el disco interno, en uno externo o en un USB.
-
-**Para descargarla**, ve a la página [Releases](https://github.com/Vex62/Super-Limpio/releases) del repositorio y baja `SuperLimpio-1.0.0-portable.zip`: es el que lo trae todo.
 
 Si ya tienes un zip, mira **cuál es**:
 
 | Tu zip se llama… | Qué es | Sigue… |
 |---|---|---|
-| `SuperLimpio-1.0.0-portable.zip` | Todo incluido, listo para usar | [Opción A](#opción-a-zip-portable-lo-más-fácil) |
-| `Super-Limpio-main.zip` (botón verde **Code › Download ZIP** de GitHub) o `SuperLimpio-1.0.0.zip` | Solo el código: le falta Python | [Opción B](#opción-b-zip-de-código-el-que-se-baja-de-github) |
-| `SuperLimpio-1.0.0-con-python.zip` | Código + Python | Opción B, saltándote el paso 3 |
+| `SuperLimpio-<versión>-protegido.zip` (el de Releases) o `SuperLimpio-<versión>-portable.zip` | Todo incluido, listo para usar | [Opción A](#opción-a-zip-del-release-lo-más-fácil) |
+| `Super-Limpio-main.zip` (botón verde **Code › Download ZIP** de GitHub) o `SuperLimpio-<versión>.zip` | Solo el código: le falta Python | [Opción B](#opción-b-zip-de-código-el-que-se-baja-de-github) |
+| `SuperLimpio-<versión>-con-python.zip` | Código + Python | Opción B, saltándote el paso 3 |
 
-### Opción A: zip portable (lo más fácil)
+### Opción A: zip del release (lo más fácil)
 
 1. **Desbloquea el zip.** Clic derecho sobre el zip › **Propiedades** › abajo del todo marca **Desbloquear** › **Aceptar**. (Si no aparece esa casilla, no hace falta.) Así Windows no pone pegas al abrir la app.
 2. **Descomprímelo entero.** Clic derecho sobre el zip › **Extraer todo…** › elige dónde › **Extraer**. No abras el `.exe` desde dentro del zip: no funcionaría.
@@ -57,7 +66,7 @@ En este zip no viene `SuperLimpio.exe`, porque los programas compilados no se gu
 
 ## Linux
 
-Hay un paquete aparte, `SuperLimpio-<versión>-linux.tar.gz`, con el mismo código y un lanzador para Linux. No lleva Python: usa el del sistema (3.10 o posterior, con tkinter).
+Hay un paquete aparte, `SuperLimpio-<versión>-linux.tar.gz`, con el mismo código y un lanzador para Linux. Se baja del release «Super Limpio <versión> para Linux». No lleva Python: usa el del sistema (3.10 o posterior, con tkinter).
 
 ```
 tar -xzf SuperLimpio-<versión>-linux.tar.gz
@@ -66,7 +75,9 @@ cd SuperLimpio
 ./superlimpio.sh --instalar     # opcional: la añade al menú de aplicaciones de tu usuario
 ```
 
-Si falta Python o tkinter, el lanzador dice qué paquete instalar (en Debian/Ubuntu, `sudo apt install python3-tk`). No instala nada en el sistema ni necesita permisos de administrador.
+Si falta Python o tkinter, el lanzador dice qué paquete instalar (en Debian/Ubuntu, `sudo apt install python3-tk`). No instala nada en el sistema ni necesita permisos de administrador. Para quitarla: `./superlimpio.sh --quitar` y borra la carpeta. El lanzador también funciona a través de un enlace simbólico (por ejemplo, `ln -s "$PWD/superlimpio.sh" ~/.local/bin/superlimpio`).
+
+Opcional: `wmctrl`, para que el Modo eficiente sepa qué programas tienen una ventana abierta. Solo ve las ventanas de X11 y XWayland.
 
 Qué cambia respecto a Windows:
 
@@ -80,8 +91,12 @@ Qué cambia respecto a Windows:
 | **Inicio** | Carpetas `autostart` y servicios de usuario de systemd |
 | **Limpieza** | Miniaturas, informes de fallo, paquetes descargados, cachés de navegadores y de desarrollo, shaders y Papelera. No toca `/tmp` |
 | **Herramientas** | Las de la distribución que estén instaladas: journalctl, apt/dnf/pacman, Flatpak, fstrim. Se abren en una terminal, donde `sudo` pide la contraseña |
+| **Terminal** | La que tengas elegida en el escritorio (`xdg-terminal-exec` o `x-terminal-emulator`); si no se sabe, la primera que haya de GNOME Terminal, Ptyxis, Konsole, Xfce, MATE, Tilix, Terminator, LXTerminal, QTerminal, Alacritty, kitty, foot, WezTerm o xterm |
+| **Nombres de archivo** | Los que no son UTF-8 válido (discos antiguos, copias de otros sistemas) se analizan, se envían a la Papelera y se comprimen igual; dentro de un 7z o ZIP sus letras ilegibles se guardan con el signo de sustitución de Unicode |
 
 No hay «reiniciar como administrador»: una interfaz gráfica como root no es buena idea en Linux. Lo que necesita privilegios se hace en una terminal con `sudo`, a la vista.
+
+**Qué está probado.** En cada cambio, GitHub Actions ejecuta en Ubuntu 22.04 y 24.04 las pruebas de la lógica, llamadas reales al sistema (procesos, Papelera, prioridades) y un recorrido por toda la interfaz bajo un servidor gráfico virtual, y guarda capturas de cada sección (`.github/workflows/linux.yml`). El paquete publicado se descarga y se prueba tal cual, firma incluida. Fedora, Arch y openSUSE están contemplados en el código (rpm, pacman, dnf, zypper y sus rutas) pero **no se han probado**, ni tampoco un escritorio real con GNOME o KDE.
 
 Lo que depende del sistema operativo está aislado en `app/superlimpio/plat/`: `windows.py` y `linux.py` hacen las llamadas al sistema, y `windows_know.py` y `linux_know.py` saben qué procesos y carpetas son vitales en cada uno.
 
@@ -110,15 +125,30 @@ runtime\python\python.exe -B tools\crear_zip.py
 runtime\python\python.exe -B tools\crear_zip.py --con-python
 runtime\python\python.exe -B tools\crear_exe.py
 runtime\python\python.exe -B tools\crear_zip.py --portable
+runtime\python\python.exe -B tools\crear_zip.py --protegido
+runtime\python\python.exe -B tools\crear_linux.py
 ```
 
-### Generar los zips
+En Linux es lo mismo con `python3` y barras normales (`python3 -B -m unittest discover -s tests -v`). `tests/smoke_gui.py` recorre la interfaz real sin pulsar nada que borre o cierre; sin escritorio se lanza con `xvfb-run -a python3 tests/smoke_gui.py capturas`.
+
+### Generar los paquetes
 
 | Comando | Resultado | Para qué |
 |---|---|---|
-| `tools\crear_zip.py --portable` | `dist\SuperLimpio-1.0.0-portable.zip` (~21 MB) | **Descomprimir y doble clic en `SuperLimpio.exe`**, sin Internet. Lleva el `.exe`, la app, el Python portable y el código ya compilado. Necesita haber ejecutado antes `tools\crear_exe.py` |
-| `tools\crear_zip.py` | `dist\SuperLimpio-1.0.0.zip` (~100 KB, solo texto) | Compartir o guardar el código. Quien lo reciba ejecuta `preparar_entorno.bat` |
-| `tools\crear_zip.py --con-python` | `dist\SuperLimpio-1.0.0-con-python.zip` (~17 MB) | Código + Python portable, para seguir desarrollando sin Internet |
+| `tools\crear_zip.py --protegido` | `dist\SuperLimpio-<versión>-protegido.zip` (~22 MB) | **El que se publica para Windows.** Como el portable, pero el paquete `superlimpio` va compilado (`.pyc`, sin los `.py`) y con el manifiesto de integridad firmado. Necesita `SuperLimpio.exe` y la clave de firma (`tools\firmar.py --generar-claves`, una sola vez) |
+| `tools\crear_linux.py` | `dist\SuperLimpio-<versión>-linux.tar.gz` (~200 KB) | **El que se publica para Linux.** Código fuente legible con finales de línea de Unix, `superlimpio.sh` con permiso de ejecución y manifiesto firmado si existe la clave (`--sin-firma` para omitirlo). Se puede generar desde Windows o desde Linux |
+| `tools\crear_zip.py --portable` | `dist\SuperLimpio-<versión>-portable.zip` (~21 MB) | **Descomprimir y doble clic en `SuperLimpio.exe`**, sin Internet y sin firma. Lleva el `.exe`, la app, el Python portable y el código ya compilado. Necesita haber ejecutado antes `tools\crear_exe.py` |
+| `tools\crear_zip.py` | `dist\SuperLimpio-<versión>.zip` (~100 KB, solo texto) | Compartir o guardar el código. Quien lo reciba ejecuta `preparar_entorno.bat` |
+| `tools\crear_zip.py --con-python` | `dist\SuperLimpio-<versión>-con-python.zip` (~17 MB) | Código + Python portable, para seguir desarrollando sin Internet |
+
+La clave privada de firma vive fuera del repositorio (`%USERPROFILE%\.superlimpio\clave_firma.hex`) y nunca debe subirse. `tools\firmar.py --verificar <carpeta>` comprueba un paquete descomprimido igual que lo hace la app al arrancar.
+
+### Publicar una versión
+
+1. Sube el número en `app\superlimpio\__init__.py` y comprueba que el flujo **Linux** de GitHub Actions pasa.
+2. Genera `SuperLimpio.exe`, el zip protegido y el paquete de Linux (comandos de arriba).
+3. Crea dos etiquetas sobre el mismo commit, `v<versión>-windows` y `v<versión>-linux`, y un release por cada una con su archivo. GitHub no admite dos releases sobre la misma etiqueta.
+4. Antes de publicar el de Linux, déjalo como borrador y lanza la verificación del paquete tal cual se descarga: `gh workflow run linux.yml --ref main -f etiqueta=v<versión>-linux`. Comprueba que arranca, que acepta la firma y que rechaza un archivo modificado.
 
 ### Compilar `SuperLimpio.exe`
 
@@ -139,11 +169,13 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 | **Programas** | Programas instalados con tamaño **declarado** y **real** medido en disco | Desinstalar con el desinstalador **oficial** del programa |
 | **Memoria y procesos** | Memoria privada, RAM física y CPU, agrupado por programa (p. ej. todos los `chrome.exe` juntos). La columna **Importancia** y el panel inferior dicen qué es cada proceso, si Windows lo necesita y qué pasa si se cierra | Finalizar procesos (los esenciales de Windows están bloqueados). Si eliges el propio Super Limpio, se cierra de forma ordenada en vez de matarse |
 | **Optimizar** | *Análisis exhaustivo*: observa todos los procesos durante 10–60 s y señala qué programas acaparan RAM, cuáles no dejan de crecer (posible fuga), cuáles usan CPU sin tener ventana y cuánto falta para agotar la memoria. *Modo eficiente*: eliges el programa o juego que vas a usar y propone qué hacer con cada uno de los demás | Ralentizar (modo de eficiencia de Windows, reversible), cerrar, dar prioridad a tu programa; **Deshacer** y **Reabrir cerrados** al terminar |
-| **Inicio de Windows** | Programas que arrancan solos, su estado y si apuntan a archivos ya borrados | Abre el Administrador de tareas para desactivarlos (vía oficial y reversible) |
+| **Inicio de sesión** | Programas que arrancan solos, su estado y si apuntan a archivos ya borrados | Abre el Administrador de tareas para desactivarlos (vía oficial y reversible) |
 | **Limpieza** | Temporales, informes de error, cachés de navegadores, de desarrollo (pip, npm, Gradle, Cargo, NuGet), de shaders, Windows Update, papelera… | Analiza primero sin tocar nada; luego limpia lo marcado |
 | **Librerías de desarrollo** | `node_modules`, `.venv`, `__pycache__`, `target`, `bin/obj` de .NET, `.next`, `.gradle`… dentro de tus proyectos | Marcar (incluso «más de 6 meses sin tocar») y enviar a la Papelera o borrar |
 | **Herramientas del sistema** | Comandos oficiales: Almacenamiento, Liberador de espacio, punto de restauración, análisis y limpieza de WinSxS (DISM), desactivar hibernación | Ejecutar, viendo antes el **comando literal** |
 | **Registro de acciones** | Todo lo que la app ha hecho, con fecha y resultado (`logs\acciones.log`) | — |
+
+La tabla describe Windows. En Linux las secciones son las mismas con los equivalentes del sistema: ver [Linux](#linux).
 
 **Tamaño de la interfaz**: con el control «− 100 % +» de la barra lateral o con **Ctrl +**, **Ctrl −** y **Ctrl 0** (vuelve al 100 %). La ventana se adapta a la pantalla: si cambia la resolución conserva sus proporciones y, si se arrastra fuera, vuelve a un sitio donde se puede agarrar.
 
@@ -157,7 +189,7 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 - **Importancia para el sistema**: cada proceso y cada archivo o carpeta lleva un nivel (*Normal*, *Precaución*, *Importante*, *Vital*) con una frase que explica qué es y otra con el riesgo de cerrarlo o borrarlo. Se ve en «Memoria y procesos», en el análisis de «Optimizar» y en el «Analizador de disco», y los avisos de confirmación lo repiten cuando la selección incluye algo delicado (`app\superlimpio\criticality.py`).
 - **Cierre ordenado**: al salir (la X, Ctrl+Q o «Finalizar» sobre el propio Super Limpio) se avisa si hay un borrado o una limpieza a medias, se ofrece deshacer el Modo eficiente y se detienen los análisis en marcha.
 - **El Modo eficiente propone, no decide.** Se basa en lo que hacen el modo de eficiencia de Windows 11, Process Lasso, Microsoft PC Manager o Razer Cortex, pero sin automatismos: enseña la lista exacta (qué se ralentiza, a qué se le pide que se cierre, qué se finaliza) y espera tu confirmación. La acción por defecto es **ralentizar**, que no cierra nada y se deshace con un botón. A los programas con ventana se les *pide* que se cierren, como si pulsaras su X, así que pueden preguntarte si guardas; forzar el cierre es una casilla aparte y sube el riesgo a *Alto*. Nunca aparecen en la lista Windows y sus servicios, el antivirus, los anti-trampas, la propia app ni nada relacionado con el programa que has elegido (su carpeta, sus procesos hijos y quien lo lanzó). Tampoco se detienen servicios ni se asigna prioridad «Alta» o «Tiempo real». Antes de actuar se comprueba que cada proceso sigue siendo el mismo que se analizó (Windows reutiliza los PID). Los cambios duran lo que la sesión: si cierras la app con el modo activo, pregunta si deshacerlo.
-- **Comprimir no toca los originales.** El compresor es propio (biblioteca estándar de Python, sin programas externos) y genera archivos estándar que abren 7-Zip y WinRAR: **7z** con LZMA2 en bloque sólido (los mejores índices; varios hilos si la memoria del equipo lo permite) o **ZIP** con Deflate (lo abre cualquier sistema). La contraseña es opcional y cifra con **AES-256** usando la criptografía del propio Windows; en 7z se cifran también los nombres de los archivos. La contraseña no se guarda ni se registra, y si se olvida no hay forma de recuperar el contenido. En ZIP solo se admiten contraseñas ASCII, porque cada programa interpreta de forma distinta las tildes y la «ñ». Se escribe en un archivo `.part` que solo recibe su nombre al terminar bien: si se detiene o falla, no queda nada a medias. Al acabar se **relee y comprueba** el archivo entero. No se siguen enlaces ni se descargan archivos «solo en la nube»: se omiten y se avisa. Enviar los originales a la Papelera es una casilla aparte, exige que la comprobación haya salido bien y que no se haya omitido nada, y pide su propia confirmación.
+- **Comprimir no toca los originales.** El compresor es propio (biblioteca estándar de Python, sin programas externos) y genera archivos estándar que abren 7-Zip y WinRAR: **7z** con LZMA2 en bloque sólido (los mejores índices; varios hilos si la memoria del equipo lo permite) o **ZIP** con Deflate (lo abre cualquier sistema). La contraseña es opcional y cifra con **AES-256** usando la criptografía del propio sistema (CNG en Windows, OpenSSL en Linux); en 7z se cifran también los nombres de los archivos. La contraseña no se guarda ni se registra, y si se olvida no hay forma de recuperar el contenido. En ZIP solo se admiten contraseñas ASCII, porque cada programa interpreta de forma distinta las tildes y la «ñ». Se escribe en un archivo `.part` que solo recibe su nombre al terminar bien: si se detiene o falla, no queda nada a medias. Al acabar se **relee y comprueba** el archivo entero. No se siguen enlaces ni se descargan archivos «solo en la nube»: se omiten y se avisa. Enviar los originales a la Papelera es una casilla aparte, exige que la comprobación haya salido bien y que no se haya omitido nada, y pide su propia confirmación.
 - **La limpieza solo actúa sobre una lista cerrada de ubicaciones conocidas**, respeta los archivos en uso y en `%TEMP%` conserva lo modificado en las últimas 24 h.
 - **No sigue enlaces simbólicos ni *junctions*** al analizar o borrar (evita contar doble o salirse de la carpeta). Los archivos de OneDrive «solo en la nube» se cuentan aparte porque no ocupan disco.
 - **Administrador solo cuando hace falta**: «Reiniciar como administrador» pide confirmación y además Windows muestra su aviso UAC. Las herramientas que necesitan elevación (DISM, powercfg) se lanzan cada una con su propio aviso UAC y en una consola visible.
@@ -167,8 +199,8 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 Los falsos positivos suelen venir de ejecutables empaquetados (PyInstaller, etc.), código ofuscado o comportamientos típicos de malware. Este proyecto los evita a propósito:
 
 - **`SuperLimpio.exe` no es un empaquetado.** No lleva Python ni la app comprimidos dentro, no extrae nada a carpetas temporales y no usa UPX ni nada parecido, que es justo lo que hace saltar a los antivirus con PyInstaller y similares. Solo carga la DLL oficial de Python, **firmada** por la Python Software Foundation, que está a la vista en `runtime\python`. Importa 13 funciones de Windows, lleva icono, información de versión y manifiesto como cualquier programa normal, y su código fuente está en `launcher\launcher.c`.
-- La aplicación sigue siendo código fuente legible (`.py`) en la carpeta `app`. Quien prefiera no usar el `.exe` puede abrirla con `SuperLimpio.bat`, que usa `pythonw.exe`.
-- Sin ofuscación, sin Base64, sin PowerShell codificado, sin `-ExecutionPolicy Bypass`, sin ventanas ocultas.
+- La aplicación es el código Python de la carpeta `app`. En el repositorio, en el zip de código y en el paquete de Linux va como fuente legible (`.py`); en el zip protegido de Windows el paquete `superlimpio` va ya compilado por el propio Python (`.pyc`), que es ese mismo código y se puede contrastar con el del repositorio. Quien prefiera no usar el `.exe` puede abrir el código con `SuperLimpio.bat`, que usa `pythonw.exe`.
+- Sin empaquetadores, sin Base64, sin PowerShell codificado, sin `-ExecutionPolicy Bypass`, sin ventanas ocultas. La ofuscación con PyArmor existe como opción de `tools\crear_zip.py` (`--pyarmor`), pero los paquetes publicados no la usan.
 - Sin persistencia (no crea tareas programadas, servicios ni entradas de inicio) y sin escribir en el registro.
 - Sin red en tiempo de ejecución. Las únicas descargas están en `preparar_entorno.bat`, se piden con permiso, vienen de python.org / Microsoft y se **verifica su firma digital** antes de usarlas. No se ejecuta ningún instalador: los paquetes solo se extraen.
 - Para medir procesos pide a Windows **el permiso mínimo** (`PROCESS_QUERY_LIMITED_INFORMATION`). El Modo eficiente pide además, solo sobre los procesos que has confirmado, los permisos para cambiar su prioridad, recortar su RAM o finalizarlos. Nunca solicita acceso a la memoria de otros procesos, que es justo lo que los antivirus vigilan (por ejemplo sobre `lsass.exe`).
@@ -194,6 +226,7 @@ Si algún antivirus marcase un archivo, no lo excluyas a ciegas: súbelo a [Viru
 SuperLimpio/
 ├─ SuperLimpio.exe              abre la aplicación (lo genera tools/crear_exe.py; no va a git)
 ├─ SuperLimpio.bat              abre la aplicación con pythonw.exe, sin el .exe
+├─ superlimpio.sh               abre la aplicación en Linux con el Python del sistema
 ├─ preparar_entorno.bat         descarga verificada de Python / VS Code portables
 ├─ SuperLimpio.code-workspace   + .vscode/ (intérprete portable, tareas, depuración)
 ├─ paleta.txt                   colores de la marca; la interfaz los toma de app/superlimpio/ui/theme.py
@@ -209,19 +242,30 @@ SuperLimpio/
 │     ├─ devdeps.py      librerías de desarrollo regenerables
 │     ├─ systools.py     comandos del sistema con confirmación
 │     ├─ safety.py       rutas/procesos protegidos, riesgos, registro
+│     ├─ criticality.py  importancia para el sistema de cada proceso, archivo y carpeta
 │     ├─ fileops.py      Papelera y borrado con comprobaciones
 │     ├─ archiver.py     compresor 7z / ZIP (LZMA2 sólido, Deflate, AES-256, verificación)
-│     ├─ aes.py          AES-256 con la criptografía de Windows (CNG)
-│     ├─ winapi.py       llamadas a la API de Windows (ctypes)
+│     ├─ aes.py          AES-256 con la criptografía del sistema (CNG en Windows, OpenSSL en Linux)
+│     ├─ config.py       preferencias (idioma, tamaño, divisores), con escritura atómica
+│     ├─ i18n.py         textos en español e inglés
+│     ├─ integrity.py    comprobación del manifiesto firmado al arrancar (Ed25519)
+│     ├─ recovery.py     reparación si el arranque anterior no terminó bien
+│     ├─ plat/           todo lo que depende del sistema operativo
+│     │  ├─ windows.py / linux.py            llamadas al sistema y listas de datos
+│     │  └─ windows_know.py / linux_know.py  qué procesos y carpetas son vitales en cada uno
 │     └─ ui/             interfaz (tkinter, sin dependencias externas)
 │        └─ assets/      icono y logo de la ventana (los genera tools/crear_exe.py)
 ├─ launcher/
 │  ├─ launcher.c            código del lanzador SuperLimpio.exe
 │  ├─ SuperLimpio.manifest  manifiesto de Windows (arranca siempre sin elevar)
 │  └─ logo.png              logo; de aquí salen el icono del .exe y el de la ventana
-├─ tests/                tests de la lógica
+├─ tests/test_core.py    tests de la lógica (y, en Linux, llamadas reales al sistema)
+├─ tests/smoke_gui.py    recorrido automático por la interfaz real
 ├─ tools/crear_exe.py    compila SuperLimpio.exe
-├─ tools/crear_zip.py    genera el zip en dist/
+├─ tools/crear_zip.py    genera los zips de Windows en dist/
+├─ tools/crear_linux.py  genera el .tar.gz de Linux en dist/
+├─ tools/firmar.py       claves, firma y verificación del manifiesto de integridad
+├─ .github/workflows/    flujo que prueba la aplicación y el paquete en Ubuntu
 ├─ runtime/              Python portable y caché de código compilado (no van a git)
 └─ tools/VSCode/         VS Code portable, opcional (no va a git)
 ```
@@ -235,3 +279,6 @@ Solo usa la biblioteca estándar de Python: no hay que instalar paquetes con pip
 - Las apps de **Microsoft Store** no siempre aparecen en el registro clásico: el botón «Apps de Microsoft Store…» abre Configuración para gestionarlas.
 - Sin permisos de administrador algunas carpetas del sistema no se pueden leer; el análisis indica cuántas y la app ofrece reiniciarse elevada.
 - Los archivos con enlaces duros (p. ej. dentro de `WinSxS`) pueden contarse más de una vez, igual que en el Explorador. Para WinSxS usa *Herramientas › Analizar almacén de componentes*, que da la cifra real.
+- **Linux**: probado solo en Ubuntu 22.04 y 24.04, y de forma automática (sin un escritorio real). En otras distribuciones puede haber rutas o herramientas que no se reconozcan.
+- **Linux**: el Modo eficiente necesita `wmctrl` para saber qué programas tienen ventana, y bajo Wayland solo ve las de XWayland. Ralentizar un programa no se puede deshacer sin ser administrador, así que no se propone por defecto.
+- **Linux**: no hay «Reiniciar como administrador». Lo que pertenece a otros usuarios o al sistema se muestra como «sin acceso».

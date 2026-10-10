@@ -144,14 +144,24 @@ def _arc_base(paths: list[str]) -> str | None:
         return None
 
 
+def _valid_text(name: str) -> str:
+    """En Linux un nombre de archivo puede no ser UTF-8 válido; Python lo representa con
+    marcas que no se pueden escribir en un 7z ni en un ZIP. Se cambian por el signo de sustitución (U+FFFD)."""
+    try:
+        name.encode("utf-8")
+        return name
+    except UnicodeEncodeError:
+        return name.encode("utf-8", "surrogateescape").decode("utf-8", "replace")
+
+
 def _arcname(path: str, base: str | None) -> str:
     if base is not None:
         rel = os.path.relpath(path, base)
         if rel not in (".", "") and not rel.startswith(".."):
-            return rel.replace(os.sep, "/")
+            return _valid_text(rel.replace(os.sep, "/"))
     drive, rest = os.path.splitdrive(path)
     name = "/".join(x for x in (drive.rstrip(":"), rest.strip("\\/").replace(os.sep, "/")) if x)
-    return name or "root"
+    return _valid_text(name) or "root"
 
 
 def collect(paths: list[str], should_stop=None, progress=None) -> Collection:

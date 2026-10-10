@@ -1105,6 +1105,30 @@ class LinuxPlatformTests(unittest.TestCase):
                 self.assertTrue(self.lx.empty_recycle_bin()[0])
                 self.assertEqual(self.lx.recycle_bin_info(), (0, 0))
 
+    def test_file_names_that_are_not_utf8_are_handled(self):
+        from unittest import mock
+        from superlimpio import archiver, safety
+        with tempfile.TemporaryDirectory() as tmp:
+            raw = os.path.join(os.fsencode(tmp), b"trabajo", b"caf\xe9.txt")   # «café» en Latin-1
+            os.makedirs(os.path.dirname(raw))
+            try:
+                with open(raw, "wb") as fh:
+                    fh.write(b"x" * 10)
+            except OSError:
+                self.skipTest("este sistema de archivos solo admite nombres UTF-8")
+            victim = os.fsdecode(raw)
+            self.assertEqual(archiver._arcname(victim, os.path.dirname(victim)), "caf\ufffd.txt")
+            found = scanner.scan(os.path.dirname(victim))
+            self.assertEqual((found.root.files, found.top_files[0][1]), (1, victim))
+            with mock.patch.object(safety, "LOG_DIR", __import__("pathlib").Path(tmp) / "logs"):
+                safety.log_action("prueba", victim, "ok")
+                self.assertEqual(safety.read_log()[0]["objetivo"], victim)   # ida y vuelta sin perder el nombre
+            with mock.patch.dict(os.environ, {"XDG_DATA_HOME": os.path.join(tmp, "datos")}):
+                ok, msg = self.lx.send_to_recycle_bin([victim])
+                self.assertTrue(ok, msg)
+                info = os.path.join(os.fsencode(tmp), b"datos", b"Trash", b"info", b"caf\xe9.txt.trashinfo")
+                self.assertIn(b"/trabajo/caf%E9.txt\n", open(info, "rb").read())
+
     def test_system_paths_cannot_be_deleted(self):
         home = os.path.expanduser("~")
         for path in ("/", "/usr", "/usr/bin/python3", "/etc/passwd", "/boot", "/var/lib/dpkg", "/home", home,

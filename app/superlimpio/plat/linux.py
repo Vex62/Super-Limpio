@@ -46,8 +46,10 @@ def _run(argv: list[str], timeout: float = 15.0, partial: bool = False) -> str:
     partial=True vale lo que haya escrito aunque termine con error (dpkg lo hace cuando
     solo conoce parte de lo que se le pregunta)."""
     try:
-        res = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, errors="replace",
-                             env={**os.environ, "LC_ALL": "C"})
+        # Mensajes sin traducir (se leen por programa) pero en UTF-8, para que los nombres con
+        # tildes lleguen enteros. Donde no exista C.UTF-8 el programa se queda en «C», como antes.
+        res = subprocess.run(argv, capture_output=True, timeout=timeout, encoding="utf-8", errors="replace",
+                             env={**os.environ, "LC_ALL": "C.UTF-8", "LANGUAGE": "C"})
         return res.stdout if res.returncode == 0 or partial else ""
     except (OSError, subprocess.SubprocessError):
         return ""
@@ -367,7 +369,7 @@ def open_in_explorer(path: str) -> tuple[bool, str]:
     if not os.path.isdir(path):
         gdbus = _which("gdbus")
         if gdbus and os.path.exists(path):
-            uri = "file://" + urllib.parse.quote(path)
+            uri = "file://" + urllib.parse.quote(os.fsencode(path))
             try:
                 res = subprocess.run(
                     [gdbus, "call", "--session", "--dest", "org.freedesktop.FileManager1",
@@ -553,8 +555,8 @@ def _trash_one(path: str) -> None:
         except FileExistsError:
             n += 1
             name = f"{base}.{n}"
-    with os.fdopen(fd, "w", encoding="utf-8") as fh:
-        fh.write("[Trash Info]\nPath=" + urllib.parse.quote(recorded) + "\nDeletionDate="
+    with os.fdopen(fd, "w", encoding="ascii") as fh:   # la ruta va por bytes: vale aunque no sea UTF-8
+        fh.write("[Trash Info]\nPath=" + urllib.parse.quote(os.fsencode(recorded)) + "\nDeletionDate="
                  + _dt.datetime.now().strftime("%Y-%m-%dT%H:%M:%S") + "\n")
     try:
         os.rename(path, os.path.join(trash, "files", name))

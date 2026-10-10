@@ -343,7 +343,8 @@ def user_dirs(home: str) -> list[str]:
     """Carpetas personales según ~/.config/user-dirs.dirs (sus nombres dependen del idioma)."""
     found = []
     try:
-        with open(os.path.join(home, ".config", "user-dirs.dirs"), encoding="utf-8") as fh:
+        with open(os.path.join(home, ".config", "user-dirs.dirs"), encoding="utf-8",
+                  errors="surrogateescape") as fh:   # igual que el sistema lee los nombres de archivo
             for line in fh:
                 line = line.strip()
                 if line.startswith("XDG_") and "=" in line:

@@ -127,7 +127,7 @@ def log_action(action: str, target: str = "", result: str = "", ok: bool = True,
     rec.update(extra)
     try:
         LOG_DIR.mkdir(parents=True, exist_ok=True)
-        with _log_lock, open(LOG_DIR / "acciones.log", "a", encoding="utf-8") as fh:
+        with _log_lock, open(LOG_DIR / "acciones.log", "a", encoding="utf-8", errors="backslashreplace") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
     except OSError:
         pass
@@ -138,7 +138,7 @@ def read_log(limit: int = 500) -> list[dict]:
     if not path.exists():
         return []
     try:
-        with open(path, encoding="utf-8") as fh:
+        with open(path, encoding="utf-8", errors="replace") as fh:
             lines = fh.readlines()[-limit:]
     except OSError:
         return []
