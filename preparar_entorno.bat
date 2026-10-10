@@ -13,11 +13,21 @@ rem       tools\VSCode y le instala la extensión de Python
 rem
 rem  Herramientas usadas, todas incluidas en Windows 11: curl.exe, tar.exe,
 rem  msiexec.exe (solo para extraer, opción /a) y PowerShell solo para leer
-rem  la firma digital. Nada se ejecuta oculto.
+rem  la firma digital. Nada se ejecuta oculto. Todas se llaman por su ruta
+rem  completa de System32: por nombre, cmd.exe las buscaría antes en esta carpeta.
 rem ======================================================================
 setlocal EnableExtensions
 chcp 65001 >nul
 cd /d "%~dp0"
+
+set "SYS=%SystemRoot%\System32"
+set "CURL=%SYS%\curl.exe"
+set "TAR=%SYS%\tar.exe"
+set "MSIEXEC=%SYS%\msiexec.exe"
+set "POWERSHELL=%SYS%\WindowsPowerShell\v1.0\powershell.exe"
+rem Solo HTTPS (también en las redirecciones) y con tiempos de espera: una descarga no
+rem puede quedarse colgada ni acabar en una dirección sin cifrar.
+set "CURLOPTS=--proto =https --proto-redir =https --tlsv1.2 --connect-timeout 20 --max-time 1800 -L --fail"
 
 set "PYVER=3.12.10"
 set "PYURL=https://www.python.org/ftp/python/%PYVER%/amd64"
@@ -34,7 +44,7 @@ echo    SUPER LIMPIO - Preparación del entorno portable
 echo  =============================================================
 echo.
 
-where curl.exe >nul 2>nul || goto :no_curl
+if not exist "%CURL%" goto :no_curl
 if not exist "%DL%" mkdir "%DL%"
 
 rem ---------------------------------------------------------------- Python
@@ -55,7 +65,7 @@ if errorlevel 2 goto :skip_python
 
 for %%M in (%PYPARTS%) do (
     echo  Descargando %%M.msi ...
-    curl.exe -L --fail --silent --show-error -o "%DL%\%%M.msi" "%PYURL%/%%M.msi" || goto :dl_error
+    "%CURL%" %CURLOPTS% --silent --show-error -o "%DL%\%%M.msi" "%PYURL%/%%M.msi" || goto :dl_error
 )
 
 echo  Comprobando firmas digitales...
@@ -66,14 +76,14 @@ echo  [OK] Firma válida de Python Software Foundation en los 4 paquetes
 
 echo  Extrayendo en runtime\python ...
 for %%M in (%PYPARTS%) do (
-    start "" /wait msiexec.exe /a "%DL%\%%M.msi" /qn TARGETDIR="%PYDIR%"
+    start "" /wait "%MSIEXEC%" /a "%DL%\%%M.msi" /qn TARGETDIR="%PYDIR%"
     if errorlevel 1 goto :install_error
 )
 rem La extracción deja una copia reducida de cada .msi: no hace falta
 del /q "%PYDIR%\*.msi" 2>nul
 if not exist "%PYDIR%\pythonw.exe" goto :install_error
 
-"%PYDIR%\python.exe" -B -c "import tkinter, ctypes, winreg; print('  [OK] Python', __import__('sys').version.split()[0], 'con tkinter')" || goto :install_error
+"%PYDIR%\python.exe" -I -B -c "import tkinter, ctypes, winreg; print('  [OK] Python', __import__('sys').version.split()[0], 'con tkinter')" || goto :install_error
 goto :vscode
 
 :skip_python
@@ -94,10 +104,10 @@ echo.
 choice /c SN /m "  ¿Descargar VS Code portable"
 if errorlevel 2 goto :done
 
-curl.exe -L --fail --progress-bar -o "%VSZIP%" "%VSURL%" || goto :dl_error
+"%CURL%" %CURLOPTS% --progress-bar -o "%VSZIP%" "%VSURL%" || goto :dl_error
 if not exist "%VSDIR%" mkdir "%VSDIR%"
 echo  Descomprimiendo...
-tar.exe -xf "%VSZIP%" -C "%VSDIR%" || goto :install_error
+"%TAR%" -xf "%VSZIP%" -C "%VSDIR%" || goto :install_error
 call :check_signature "%VSDIR%\Code.exe" "Microsoft Corporation" || goto :sig_error
 echo  [OK] Firma válida de Microsoft Corporation
 if not exist "%VSDIR%\data" mkdir "%VSDIR%\data"
@@ -123,12 +133,16 @@ exit /b 0
 
 rem ----------------------------------------------------------- subrutinas
 :check_signature
-rem %1 = archivo, %2 = firmante esperado
-powershell.exe -NoProfile -NonInteractive -Command "$s = Get-AuthenticodeSignature -LiteralPath '%~1'; if ($s.Status -eq 'Valid' -and $s.SignerCertificate.Subject -like '*%~2*') { exit 0 } else { Write-Host ('  Firma: ' + $s.Status + ' / ' + $s.SignerCertificate.Subject); exit 1 }"
+rem %1 = archivo, %2 = firmante esperado (el nombre exacto del certificado, no un trozo)
+rem La ruta y el firmante llegan a PowerShell por variables de entorno, no pegados dentro
+rem del comando: una carpeta con un apóstrofo en el nombre no puede alterarlo.
+set "SL_FILE=%~1"
+set "SL_SIGNER=%~2"
+"%POWERSHELL%" -NoProfile -NonInteractive -Command "$s = Get-AuthenticodeSignature -LiteralPath $env:SL_FILE; $n = if ($s.SignerCertificate) { $s.SignerCertificate.GetNameInfo('SimpleName', $false) } else { '' }; if ($s.Status -eq 'Valid' -and $n -eq $env:SL_SIGNER) { exit 0 } else { Write-Host ('  Firma: ' + $s.Status + ' / ' + $n); exit 1 }"
 exit /b %errorlevel%
 
 :no_curl
-echo  No se encontró curl.exe (viene con Windows 10 1803+ y Windows 11).
+echo  No se encontró %CURL% (viene con Windows 10 1803+ y Windows 11).
 goto :fail
 :dl_error
 echo  Error de descarga. Comprueba tu conexión a Internet.

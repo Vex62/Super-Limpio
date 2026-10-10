@@ -5,7 +5,7 @@
       "label": "Ejecutar Super Limpio",
       "type": "process",
       "command": "${workspaceFolder}\\runtime\\python\\pythonw.exe",
-      "args": ["${workspaceFolder}\\app\\main.py"],
+      "args": ["-I", "${workspaceFolder}\\app\\main.py"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": { "kind": "build", "isDefault": true },
       "presentation": { "reveal": "silent" },
@@ -15,7 +15,7 @@
       "label": "Ejecutar Super Limpio (con consola, para depurar)",
       "type": "process",
       "command": "${workspaceFolder}\\runtime\\python\\python.exe",
-      "args": ["${workspaceFolder}\\app\\main.py"],
+      "args": ["-I", "${workspaceFolder}\\app\\main.py"],
       "options": { "cwd": "${workspaceFolder}" },
       "problemMatcher": []
     },
@@ -23,7 +23,7 @@
       "label": "Tests",
       "type": "process",
       "command": "${workspaceFolder}\\runtime\\python\\python.exe",
-      "args": ["-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
+      "args": ["-I", "-B", "-m", "unittest", "discover", "-s", "tests", "-v"],
       "options": { "cwd": "${workspaceFolder}" },
       "group": "test",
       "problemMatcher": []

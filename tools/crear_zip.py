@@ -16,7 +16,6 @@ Nunca se incluyen registros, descargas temporales ni VS Code.
 from __future__ import annotations
 
 import argparse
-import glob
 import os
 import shutil
 import subprocess

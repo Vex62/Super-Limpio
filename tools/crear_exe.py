@@ -101,7 +101,7 @@ def _premultiply(rows: list[bytearray]) -> list[list[list[int]]]:
     for row in rows:
         alpha = list(row[3::4])
         for c in range(3):
-            planes[c].append([v * a for v, a in zip(row[c::4], alpha)])
+            planes[c].append([v * a for v, a in zip(row[c::4], alpha, strict=True)])
         planes[3].append(alpha)
     return planes
 

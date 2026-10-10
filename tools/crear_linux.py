@@ -5,7 +5,7 @@
 
 El paquete lleva el código fuente de la aplicación (texto legible, con finales de línea
 de Unix) y el lanzador `superlimpio.sh`. No lleva Python: en Linux se usa el del sistema
-(3.10 o posterior, con tkinter), que traen casi todas las distribuciones.
+(3.11 o posterior, con tkinter), que traen casi todas las distribuciones.
 
 Se puede crear desde Windows o desde Linux: los permisos de ejecución se escriben en el
 propio .tar, no dependen del sistema de archivos. Si existe la clave de firma, el paquete
@@ -40,21 +40,21 @@ LEEME = """Super Limpio {version} para Linux
 Abrir:      ./superlimpio.sh
 Al menú:    ./superlimpio.sh --instalar     (solo tu usuario; se quita con --quitar)
 
-Necesita Python 3.10 o posterior con tkinter. Si falta, el propio lanzador te dice
+Necesita Python 3.11 o posterior con tkinter. Si falta, el propio lanzador te dice
 qué paquete instalar (en Debian/Ubuntu: sudo apt install python3-tk).
 Opcional: «wmctrl», para que el Modo eficiente sepa qué programas tienen una ventana
 abierta y pueda pedirles que se cierren como si pulsaras su X.
 
 Funciona en local, sin conexión a internet. Todas las acciones piden confirmación.
 Las preferencias se guardan en superlimpio.config.json, junto a la aplicación, y lo
-que hace queda anotado en logs/acciones.log.
+que hace queda anotado en ~/.local/state/superlimpio/logs/acciones.log.
 
 --
 
 Run:        ./superlimpio.sh
 Menu entry: ./superlimpio.sh --instalar     (your user only; remove it with --quitar)
 
-Needs Python 3.10 or newer with tkinter. If it is missing, the launcher tells you which
+Needs Python 3.11 or newer with tkinter. If it is missing, the launcher tells you which
 package to install (on Debian/Ubuntu: sudo apt install python3-tk).
 Optional: "wmctrl", so Efficient mode knows which programs have an open window.
 
