@@ -149,16 +149,13 @@ class OptimizerView(View):
             return
         seconds = int(self.an_secs.get().split()[0])
         stop = self._an_stop = threading.Event()
-        self.an_btn.state(["disabled"])
-        self.an_stop_btn.state(["!disabled"])
-        self.an_pbar.configure(maximum=seconds + 1, value=0)
-        self.an_lbl.configure(text=i18n.t("opt.an.running", s=seconds))
+        self._show_analyzing(seconds + 1, 0, i18n.t("opt.an.running", s=seconds))
         is_admin = self.app.is_admin
 
         def work() -> Any:
             samples = optimizer.take_samples(
                 count=seconds + 1, interval=1.0, should_stop=stop.is_set, sleep=stop.wait,
-                progress=lambda i, n: self.app.bg.call_in_ui(self._an_progress, i))
+                progress=lambda i, n: self.later("_an_progress", i))
             if stop.is_set() or len(samples) < 2:
                 return None
             windows = plat.list_windows()
@@ -171,7 +168,37 @@ class OptimizerView(View):
                                      {w.pid for w in windows}, startup_enabled=enabled,
                                      reclaim=optimizer.reclaimable(plan), is_admin=is_admin)
 
-        self.app.bg.run(work, on_done=self._an_done, on_error=lambda e: self._an_done(None))
+        self.work(work, "_an_done", "_an_failed")
+
+    def _show_analyzing(self, maximum: float, value: float, text: str) -> None:
+        """Botones y barra de un análisis en marcha."""
+        self.an_btn.state(["disabled"])
+        self.an_stop_btn.state(["!disabled"])
+        self.an_pbar.configure(maximum=maximum, value=value)
+        self.an_lbl.configure(text=text)
+
+    def _an_failed(self, _exc: BaseException) -> None:
+        self._an_done(None)
+
+    def handoff(self) -> dict[str, Any] | None:
+        if self._report is None and self._an_stop is None:
+            return None
+        return {"stop": self._an_stop, "report": self._report, "secs": self.an_secs.get(),
+                "bar": (float(self.an_pbar.cget("maximum")), float(self.an_pbar.cget("value"))),
+                "label": self.an_lbl.cget("text"), "rows": self.prog_tbl.rows,
+                "efficient": self.nb.select() == str(self.tab_eff)}
+
+    def adopt(self, state: dict[str, Any]) -> None:
+        self.an_secs.set(state["secs"])
+        if state["report"] is not None:
+            self._show_report(state["report"])
+            self.prog_tbl.set_rows(state["rows"])   # sin los programas que ya se cerraron
+        self.an_lbl.configure(text=state["label"])
+        self._an_stop = state["stop"]
+        if self._an_stop is not None:   # el análisis sigue en marcha: su avance llega ahora aquí
+            self._show_analyzing(*state["bar"], state["label"])
+        if state["efficient"]:
+            self.nb.select(self.tab_eff)
 
     def _an_progress(self, i: int) -> None:
         if self.winfo_exists():
@@ -192,6 +219,11 @@ class OptimizerView(View):
             self.an_lbl.configure(text=i18n.t("opt.an.cancelled"))
             return
         self.an_lbl.configure(text=i18n.t("opt.an.done", s=f"{report.seconds:.0f}"))
+        self._show_report(report)
+        self.status(i18n.t("opt.an.status", n=len(report.findings), p=len(report.programs)))
+
+    def _show_report(self, report: Any) -> None:
+        """Pinta el resultado de un análisis: el resumen, los hallazgos y los programas."""
         self.an_head.configure(text=i18n.t(f"opt.an.head.{report.severity}"),
                                fg=(theme.ACCENT_DARK, theme.ACCENT_DARK, theme.WARN, theme.DANGER)[report.severity])
         self.an_sum.configure(text=self._system_summary(report))
@@ -208,7 +240,6 @@ class OptimizerView(View):
         self._report = report
         self.prog_tbl.set_rows(report.programs)
         self.an_close_btn.state(["!disabled"])
-        self.status(i18n.t("opt.an.status", n=len(report.findings), p=len(report.programs)))
 
     def pending(self) -> str:
         return i18n.t("app.pending.optimize") if (self._an_closing or self._applying) else ""

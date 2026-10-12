@@ -143,8 +143,10 @@ class DiskView(View):
                                  bg=theme.CARD, fg=theme.TEXT, anchor="w")
         self.sel_name.pack(side="left")
         self.sel_info = tk.Label(inner, text="", font=self.fonts.small, bg=theme.CARD, fg=theme.MUTED,
-                                 anchor="w")
+                                 anchor="w", justify="left")
         self.sel_info.pack(side="left", padx=self.px(10), fill="x", expand=True)
+        # Una ruta que no cabe en una línea sigue en la siguiente, en vez de quedar cortada.
+        self.sel_info.bind("<Configure>", lambda e: self.sel_info.configure(wraplength=max(200, e.width - 4)))
         # Qué es lo seleccionado para el sistema y qué riesgo tiene borrarlo.
         self.sel_risk = tk.Label(det, text="", font=self.fonts.small, bg=theme.CARD, fg=theme.MUTED,
                                  anchor="w", justify="left", wraplength=self.px(900))
@@ -196,29 +198,47 @@ class DiskView(View):
             self.cancel_ev.set()
         self.path_var.set(path)
         self.cancel_ev = threading.Event()
-        self.scan_btn.state(["disabled"])
-        self.cancel_btn.state(["!disabled"])
-        self.pbar.configure(mode="indeterminate")
-        self.pbar.start(12)
-        self.prog_lbl.configure(text=i18n.t("disk.analyzing", path=path))
+        self._show_scanning(i18n.t("disk.analyzing", path=path))
         self.status(i18n.t("disk.analyzing_status", path=path))
         ev = self.cancel_ev
-
-        def progress_ui(kw: dict[str, Any]) -> None:
-            if ev is self.cancel_ev:   # el avance de un análisis ya sustituido no se enseña
-                self.prog_lbl.configure(**kw)
 
         def progress(p: scanner.ScanProgress) -> None:
             txt = i18n.t("disk.scan_progress", files=fmt_count(p.files), dirs=fmt_count(p.dirs),
                          bytes=fmt_size(p.bytes), secs=f"{p.elapsed:.0f}", current=p.current[-90:])
-            self.app.bg.call_in_ui(progress_ui, {"text": txt})
+            self.later("_scan_progress", txt, ev)
 
-        self.app.bg.run(lambda: scanner.scan(path, progress, ev),
-                        on_done=lambda res: self._scan_done(res, ev),
-                        on_error=lambda exc: self._scan_failed(exc, ev))
+        self.work(lambda: scanner.scan(path, progress, ev), "_scan_done", "_scan_failed", ev)
+
+    def _show_scanning(self, text: str) -> None:
+        """Botones y barra de un análisis en marcha."""
+        self.scan_btn.state(["disabled"])
+        self.cancel_btn.state(["!disabled"])
+        self.pbar.configure(mode="indeterminate")
+        self.pbar.start(12)
+        self.prog_lbl.configure(text=text)
+
+    def _scan_progress(self, text: str, ev: threading.Event) -> None:
+        if ev is self.cancel_ev:   # el avance de un análisis ya sustituido no se enseña
+            self.prog_lbl.configure(text=text)
 
     def pending(self) -> str:
         return i18n.t("app.pending.delete") if self._deleting else ""
+
+    def handoff(self) -> dict[str, Any] | None:
+        if self.result is None and self.cancel_ev is None:
+            return None
+        return {"path": self.path_var.get(), "result": self.result, "cancel_ev": self.cancel_ev,
+                "progress": self.prog_lbl.cget("text"),
+                "tab": self.nb.index(self.nb.select())}
+
+    def adopt(self, state: dict[str, Any]) -> None:
+        self.path_var.set(state["path"])
+        if state["result"] is not None:
+            self._show_result(state["result"])
+            self.nb.select(state["tab"])
+        self.cancel_ev = state["cancel_ev"]
+        if self.cancel_ev is not None:   # el análisis sigue en marcha: su avance llega ahora aquí
+            self._show_scanning(state["progress"])
 
     def _cancel(self) -> None:
         if self._del_cancel is not None:   # hay un borrado en marcha: se detiene tras el elemento actual
@@ -250,6 +270,11 @@ class DiskView(View):
             return   # se lanzó otro análisis encima: este resultado, a medias, ya no interesa
         self.cancel_ev = None
         self._end_progress()
+        self._show_result(res)
+        self.status(i18n.t("disk.scan_done_status", path=res.root.path))
+
+    def _show_result(self, res: scanner.ScanResult) -> None:
+        """Pinta el resultado de un análisis: el resumen y las tres pestañas."""
         self.result = res
         extra = []
         if res.cancelled:
@@ -266,7 +291,6 @@ class DiskView(View):
             text=i18n.t("disk.result_summary", size=fmt_size(res.root.size), files=fmt_count(res.root.files),
                         dirs=fmt_count(res.root.dirs), secs=f"{res.elapsed:.1f}")
             + ("   ·   " + " · ".join(extra) if extra else ""))
-        self.status(i18n.t("disk.scan_done_status", path=res.root.path))
         self._fill_tree()
         self._fill_files()
         self._fill_types()

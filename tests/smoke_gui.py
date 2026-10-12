@@ -13,6 +13,7 @@ En Linux sin escritorio se ejecuta bajo un servidor gráfico virtual:
 
 from __future__ import annotations
 
+import gc
 import os
 import shutil
 import subprocess
@@ -44,6 +45,9 @@ root.report_callback_exception = lambda e, v, tb: errors.append("".join(tracebac
 
 
 def pump(seconds: float) -> None:
+    # Aquí no corre mainloop(): si la basura de una interfaz ya reconstruida la recogiera un
+    # hilo de trabajo, sus variables de Tk no podrían destruirse desde él y lo frenarían.
+    gc.collect()
     end = time.time() + seconds
     while time.time() < end:
         root.update()
@@ -132,6 +136,11 @@ try:
         print("  riesgo:", disk.sel_risk.cget("text"))
     disk.nb.select(1)
     pump(0.3)
+    # Las columnas de texto largo miden lo que su contenido: la ruta no queda cortada y la
+    # barra horizontal llega hasta el final aunque la ventana sea estrecha.
+    files = disk.files_box.tree
+    widest = max(files._font.measure(r["folder"]) for r in disk.files_tbl.rows)
+    check("la columna de la ruta cabe entera", int(files.column("folder", "width")) >= widest)
     disk.nb.select(2)
     pump(0.3)
     check("la pestaña «por tipo» no deja nada seleccionado", disk._selected() == [])
@@ -149,8 +158,22 @@ try:
     app.show("optimizer")
     opt = app.page("optimizer")
     opt.analyze()
-    pump(13.0)
+    pump(3.0)
+    # Cambiar el tamaño a mitad del análisis no lo cancela: la página nueva lo hereda.
+    app._set_zoom(app.zoom + config.SCALE_STEP)
+    check("la interfaz se reconstruye al cambiar el tamaño", app.page("optimizer") is not opt)
+    opt = app.page("optimizer")
+    check("el análisis sigue tras cambiar el tamaño", opt._an_stop is not None and not opt._an_stop.is_set())
+    pump(1.5)
+    check("el avance del análisis llega a la página nueva", float(opt.an_pbar.cget("value")) > 0)
+    check("el resultado del disco se conserva", app.page("disk").result is not None
+          and len(app.page("disk").tree.get_children()) == 1)
+    app._set_zoom(1.0)
+    opt = app.page("optimizer")
+    pump(11.0)
     check("análisis de procesos", opt._report is not None and len(opt._report.programs) > 3)
+    check("el análisis terminado deja los botones en reposo", opt._an_stop is None
+          and "disabled" not in opt.an_btn.state())
     if opt._report:
         for finding in opt._report.findings:
             print("  hallazgo:", finding.severity, finding.title)
@@ -166,11 +189,16 @@ try:
     app.show("cleaner")
     cleaner_page = app.page("cleaner")
     cleaner_page.analyze()
+    app._set_zoom(app.zoom + config.SCALE_STEP)   # a mitad del análisis, que debe seguir
+    app._set_zoom(1.0)
+    cleaner_page = app.page("cleaner")
     for _ in range(120):
         pump(0.25)
         if "disabled" not in cleaner_page.an_btn.state():
             break
-    check("análisis de limpieza", len(cleaner_page.estimates) > 0)
+    check("análisis de limpieza", len(cleaner_page.estimates) > 0
+          and len(cleaner_page.tree.get_children()) == len(cleaner_page.estimates)
+          and len(cleaner_page.estimates) == len(cleaner_page._selected()))
     print("  categorías:", {k: v.size for k, v in cleaner_page.estimates.items() if v.size})
     shot("08_limpieza")
 

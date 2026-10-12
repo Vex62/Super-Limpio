@@ -94,14 +94,30 @@ class DevDepsView(View):
         self.table.set_rows([])
 
         def progress(cur: Any, n: Any) -> None:
-            self.app.bg.call_in_ui(self.info.configure,
-                                   {"text": i18n.t("devdeps.searching", n=n, cur=cur[-100:])})
+            self.later("_search_progress", i18n.t("devdeps.searching", n=n, cur=cur[-100:]))
 
-        self.app.bg.run(lambda: devdeps.find_artifacts(root, progress, ev), on_done=self._done,
-                        on_error=self._search_failed)
+        self.work(lambda: devdeps.find_artifacts(root, progress, ev), "_done", "_search_failed")
+
+    def _search_progress(self, text: str) -> None:
+        self.info.configure(text=text)
 
     def pending(self) -> str:
         return i18n.t("app.pending.delete") if self._deleting else ""
+
+    def handoff(self) -> dict[str, Any] | None:
+        if not self.table.rows and self.cancel_ev is None:
+            return None
+        return {"path": self.path.get(), "rows": self.table.rows, "checked": self.checked,
+                "cancel_ev": self.cancel_ev, "info": self.info.cget("text")}
+
+    def adopt(self, state: dict[str, Any]) -> None:
+        self.path.set(state["path"])
+        self.checked = state["checked"]
+        self.table.set_rows(state["rows"])
+        self.info.configure(text=state["info"])
+        self.cancel_ev = state["cancel_ev"]
+        if self.cancel_ev is not None:   # la búsqueda sigue en marcha
+            self.go.configure(text=i18n.t("common.stop"))
 
     def _search_failed(self, exc: BaseException) -> None:
         self.cancel_ev = None

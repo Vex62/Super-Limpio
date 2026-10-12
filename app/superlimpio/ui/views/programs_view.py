@@ -140,10 +140,23 @@ class ProgramsView(View):
                 if key not in cache:
                     cache[key] = quick_folder_size(loc, ev)[0]
                 size = cache[key]
-                self.app.bg.call_in_ui(self._measured, r, size, i + 1, len(rows))
+                self.later("_measured", r, size, i + 1, len(rows))
             return None
 
-        self.app.bg.run(work, on_done=lambda _r: self._measure_end(ev), on_error=lambda _e: self._measure_end(ev))
+        self.work(work, "_measure_end", "_measure_end", ev)
+
+    def handoff(self) -> dict[str, Any] | None:
+        if not self.table.rows:
+            return None
+        return {"rows": self.table.rows, "q": self.q.get(), "cancel_ev": self.cancel_ev}
+
+    def adopt(self, state: dict[str, Any]) -> None:
+        self._shown_once = True   # la lista ya está leída: no hace falta cargarla otra vez
+        self.table.rows = state["rows"]
+        self.q.set(state["q"])    # repinta la tabla y el resumen
+        self.cancel_ev = state["cancel_ev"]
+        if self.cancel_ev is not None and not self.cancel_ev.is_set():   # la medición sigue en marcha
+            self.measure_btn.configure(text=i18n.t("programs.measure_stop"))
 
     def _measured(self, r: Any, size: int, i: int, n: int) -> None:
         r["p"].real_size = size
@@ -153,7 +166,7 @@ class ProgramsView(View):
             self._update_summary()
         self.status(i18n.t("programs.measuring", i=i, n=n, name=r['p'].name))
 
-    def _measure_end(self, ev: threading.Event) -> None:
+    def _measure_end(self, _result: Any, ev: threading.Event) -> None:
         if self.cancel_ev is not None and self.cancel_ev is not ev:
             return   # se detuvo y ya hay otra medición en marcha: esa es la que manda
         for r in self.table.rows:

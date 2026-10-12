@@ -28,6 +28,8 @@ class CleanerView(View):
         self.estimates: dict[str, cleaner.Estimate] = {}
         self.cancel_ev: threading.Event | None = None
         self._cleaning = False
+        self._analyzing = False
+        self._cleaned_rows: dict[str, cleaner.CleanResult] = {}   # lo ya limpiado, por categoría
         self._desc_labels: list[tk.Label] = []
 
         # Panel divisible: el usuario arrastra el borde para agrandar/reducir cada caja.
@@ -124,27 +126,57 @@ class CleanerView(View):
         if not cats:
             return
         self.cancel_ev = ev = threading.Event()
+        self._analyzing = True
         self.an_btn.state(["disabled"])
         self.clean_btn.state(["disabled"])
         self.tree.delete(*self.tree.get_children())
         self.estimates.clear()
+        self._cleaned_rows.clear()
         self.pbar.configure(maximum=len(cats), value=0)
         self.hero_txt.configure(text=i18n.t("cleaner.analyzing"))
 
         def work() -> None:
             for i, c in enumerate(cats):
                 est = cleaner.analyze(c, ev)
-                self.app.bg.call_in_ui(self._add_estimate, est, i + 1)
+                self.later("_add_estimate", est, i + 1)
             return None
 
-        self.app.bg.run(work, on_done=lambda _r: self._analysis_done(), on_error=self._failed)
+        self.work(work, "_analysis_done", "_failed")
 
     def pending(self) -> str:
         return i18n.t("app.pending.clean") if self._cleaning else ""
 
+    def handoff(self) -> dict[str, Any] | None:
+        if not self.estimates and not self._analyzing:
+            return None
+        return {"marks": {cid: v.get() for cid, v in self.vars.items()}, "estimates": self.estimates,
+                "cleaned": self._cleaned_rows, "cancel_ev": self.cancel_ev, "analyzing": self._analyzing,
+                "bar": (float(self.pbar.cget("maximum")), float(self.pbar.cget("value"))),
+                "hero": (self.hero_big.cget("text"), self.hero_txt.cget("text")),
+                "can_clean": "disabled" not in self.clean_btn.state()}
+
+    def adopt(self, state: dict[str, Any]) -> None:
+        for cid, on in state["marks"].items():
+            if cid in self.vars:
+                self.vars[cid].set(on)
+        self.cancel_ev = state["cancel_ev"]
+        self._analyzing = state["analyzing"]
+        maximum, value = state["bar"]
+        self.pbar.configure(maximum=maximum)
+        for est in list(state["estimates"].values()):
+            self._add_estimate(est, 0)
+        for r in list(state["cleaned"].values()):
+            self._cleaned(r, 0)
+        self.pbar.configure(value=value)
+        self.hero_big.configure(text=state["hero"][0])
+        self.hero_txt.configure(text=state["hero"][1])
+        self.an_btn.state(["disabled"] if self._analyzing else ["!disabled"])   # si sigue, lo que falta llega aquí
+        self.clean_btn.state(["!disabled"] if state["can_clean"] else ["disabled"])
+
     def _failed(self, exc: BaseException) -> None:
         """Un fallo inesperado no puede dejar los botones apagados para siempre."""
         self._cleaning = False
+        self._analyzing = False
         self.an_btn.state(["!disabled"])
         self.hero_txt.configure(text=f"{i18n.t('common.error')}: {exc}")
         self.status(f"{i18n.t('common.error')}: {exc}")
@@ -161,7 +193,8 @@ class CleanerView(View):
             tags=(theme.size_tag(est.size),))
         self.pbar.configure(value=i)
 
-    def _analysis_done(self) -> None:
+    def _analysis_done(self, _result: Any = None) -> None:
+        self._analyzing = False
         total = sum(e.size for e in self.estimates.values())
         files = sum(e.count for e in self.estimates.values())
         self.hero_big.configure(text=fmt_size(total))
@@ -216,6 +249,7 @@ class CleanerView(View):
         self.app.bg.run(work, on_done=self._clean_done, on_error=self._failed)
 
     def _cleaned(self, r: cleaner.CleanResult, i: int) -> None:
+        self._cleaned_rows[r.category.id] = r
         if self.tree.exists(r.category.id):
             self.tree.item(r.category.id, values=(r.category.name, fmt_size(r.freed), fmt_count(r.deleted),
                                                   i18n.t("cleaner.cleaned", note=r.note)), tags=("done",))

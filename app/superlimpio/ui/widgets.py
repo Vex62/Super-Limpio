@@ -6,6 +6,7 @@ import os
 import queue
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 import traceback
 from tkinter import ttk
 from typing import Any
@@ -27,7 +28,7 @@ class Background:
 
     def __init__(self, root: tk.Misc, poll_ms: int = 60) -> None:
         self.root = root
-        self.q: queue.Queue[tuple[int, Callable, tuple]] = queue.Queue()
+        self.q: queue.Queue[tuple[int | None, Callable, tuple]] = queue.Queue()
         self.poll_ms = poll_ms
         self._gen = 0
         self._local = threading.local()
@@ -35,14 +36,15 @@ class Background:
 
     def reset(self) -> None:
         """Descarta lo pendiente: se llama al reconstruir la interfaz, para que el resultado
-        de una tarea antigua no llegue a ventanas que ya no existen."""
+        de una tarea antigua no llegue a ventanas que ya no existen. Las tareas lanzadas con
+        survive=True no se descartan: quien las lanzó decide a quién le llega el resultado."""
         self._gen += 1
 
     def _poll(self) -> None:
         try:
             while True:
                 gen, cb, args = self.q.get_nowait()
-                if gen != self._gen:
+                if gen is not None and gen != self._gen:
                     continue
                 try:
                     cb(*args)
@@ -57,8 +59,9 @@ class Background:
 
     def run(self, fn: Callable[..., Any], *args: Any,
             on_done: Callable[[Any], None] | None = None,
-            on_error: Callable[[BaseException], None] | None = None) -> threading.Thread:
-        gen = self._gen
+            on_error: Callable[[BaseException], None] | None = None,
+            survive: bool = False) -> threading.Thread:
+        gen = None if survive else self._gen
 
         def worker() -> None:
             self._local.gen = gen
@@ -234,24 +237,115 @@ def bind_wheel(canvas: tk.Canvas) -> None:
     canvas.bind("<Destroy>", destroyed, add="+")
 
 
+# Columnas que se reparten el ancho sobrante de la tabla (las de texto largo).
+_STRETCH = ("hint", "path", "name", "command", "objetivo", "resultado", "project", "folder", "desc")
+_FIT_MAX = 8000   # tope del ancho de una columna, en píxeles
+
+
+class FitTree(ttk.Treeview):
+    """Treeview cuyas columnas elásticas nunca quedan más estrechas que su texto más largo.
+
+    Tk encoge las columnas elásticas hasta que la tabla cabe en la ventana: una ruta larga
+    quedaba cortada y la barra horizontal no tenía recorrido para llegar al final. Aquí el
+    ancho mínimo de esas columnas sigue a su contenido, así que la barra lo cubre entero."""
+
+    def __init__(self, master: Any, sf: float = 1.0, **kw: Any) -> None:
+        super().__init__(master, **kw)
+        self._sf = sf
+        self._fit_cols: dict[str, int] = {}   # columna elástica -> ancho mínimo de partida
+        self._fit_idx: list[tuple[int, str]] = []   # (posición en «values», columna)
+        self._need: dict[str, int] = {}       # ancho que pide el texto más largo visto
+        self._chars: dict[str, int] = {}      # y cuántos caracteres tenía
+        self._depth: dict[str, int] = {}      # nivel de cada fila (sangría de la columna del árbol)
+        self._fit_job: str | None = None
+        self._font = tkfont.Font(self, font=ttk.Style(self).lookup("Treeview", "font") or "TkDefaultFont")
+
+    def fit_column(self, cid: str, minwidth: int) -> None:
+        """La columna cid pasa a medirse por su contenido (minwidth es su mínimo de partida)."""
+        self._fit_cols[cid] = minwidth
+        cols = list(self["columns"])
+        self._fit_idx = [(cols.index(c), c) for c in self._fit_cols if c in cols]
+
+    def insert(self, parent: str, index: Any, iid: Any = None, **kw: Any) -> str:
+        new = super().insert(parent, index, iid, **kw)
+        if "#0" in self._fit_cols:
+            depth = self._depth[new] = self._depth.get(parent, -1) + 1
+            if kw.get("text"):
+                self._note("#0", kw["text"], int(20 * (depth + 1) + 28 * self._sf))
+        self._note_values(kw.get("values"))
+        return new
+
+    def item(self, item: Any, option: Any = None, **kw: Any) -> Any:
+        result = super().item(item, option, **kw)
+        if kw.get("text") and "#0" in self._fit_cols:
+            self._note("#0", kw["text"], int(20 * (self._depth.get(item, 0) + 1) + 28 * self._sf))
+        self._note_values(kw.get("values"))
+        return result
+
+    def delete(self, *items: Any) -> None:
+        super().delete(*items)
+        if self._need and not self.get_children():
+            # Tabla vacía: las columnas vuelven a su ancho de partida.
+            self._need.clear()
+            self._chars.clear()
+            self._depth.clear()
+            self._schedule_fit()
+
+    def _note_values(self, values: Any) -> None:
+        if not values or isinstance(values, str):
+            return
+        for i, cid in self._fit_idx:
+            if i < len(values):
+                self._note(cid, values[i])
+
+    def _note(self, cid: str, text: Any, extra: int = 0) -> None:
+        text = str(text)
+        if len(text) * 1.5 < self._chars.get(cid, 0):
+            return   # mucho más corto que el más largo ya medido: no hace falta medirlo
+        width = self._font.measure(text) + extra + int(16 * self._sf)
+        if width > self._need.get(cid, 0):
+            self._need[cid] = width
+            self._chars[cid] = len(text)
+            self._schedule_fit()
+
+    def _schedule_fit(self) -> None:
+        if self._fit_job is None:
+            self._fit_job = self.after_idle(self._apply_fit)
+
+    def _apply_fit(self) -> None:
+        self._fit_job = None
+        if not self.winfo_exists():
+            return
+        for cid, base in self._fit_cols.items():
+            want = min(max(base, self._need.get(cid, 0)), _FIT_MAX)
+            now = int(self.column(cid, "minwidth"))
+            if want > now:
+                self.column(cid, minwidth=want)
+            elif want < now:   # con el ancho al mínimo, Tk vuelve a repartir el sitio que sobra
+                self.column(cid, minwidth=want, width=want)
+
+
 class ScrollTree(ttk.Frame):
-    """Treeview con barras de desplazamiento."""
+    """Treeview con barras de desplazamiento. Las columnas de texto largo (rutas,
+    descripciones) se ensanchan hasta su contenido: lo que no cabe se alcanza con la barra."""
 
     def __init__(self, master: Any, columns: list[tuple[str, str, int, str]], show_tree: bool = False,
                  sf: float = 1.0, tree_heading: str = "Nombre", tree_width: int = 320,
                  selectmode: str = "extended", style_frame: str = "TFrame") -> None:
         super().__init__(master, style=style_frame)
         cols = [c[0] for c in columns]
-        self.tree = ttk.Treeview(self, columns=cols, show=("tree headings" if show_tree else "headings"),
-                                 selectmode=selectmode)
+        self.tree = FitTree(self, sf, columns=cols, show=("tree headings" if show_tree else "headings"),
+                            selectmode=selectmode)
         if show_tree:
             self.tree.heading("#0", text=tree_heading, anchor="w")
             self.tree.column("#0", width=int(tree_width * sf), minwidth=int(120 * sf), stretch=True)
+            self.tree.fit_column("#0", int(120 * sf))
         for cid, text, width, anchor in columns:
             self.tree.heading(cid, text=text, anchor=anchor)
             self.tree.column(cid, width=int(width * sf), minwidth=int(40 * sf), anchor=anchor,
-                             stretch=(cid in ("hint", "path", "name", "command", "objetivo", "resultado",
-                                              "project", "folder", "desc")))
+                             stretch=cid in _STRETCH)
+            if cid in _STRETCH:
+                self.tree.fit_column(cid, int(40 * sf))
         vsb = ttk.Scrollbar(self, orient="vertical", command=self.tree.yview)
         hsb = ttk.Scrollbar(self, orient="horizontal", command=self.tree.xview)
         self.tree.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)

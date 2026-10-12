@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import sys
 import tkinter as tk
@@ -118,21 +119,46 @@ class App:
         self._build_shell()
         self._build_pages()
 
-    def rebuild(self) -> None:
-        """Reconstruye la interfaz tras cambiar el idioma o el tamaño. Se pierde el análisis en curso."""
+    def rebuild(self, keep_work: bool = False) -> None:
+        """Reconstruye la interfaz tras cambiar el idioma o el tamaño. Con keep_work (cambio
+        de tamaño) los análisis en marcha siguen y sus resultados pasan a las páginas nuevas;
+        sin él (cambio de idioma, cuyos textos ya no valdrían) se cancelan."""
         keep = self.current
-        self._stop_pages()
+        old = dict(self.pages)
+        states: dict[str, dict[str, Any]] = {}
+        if keep_work:
+            for key, page in old.items():
+                try:
+                    state = page.handoff()
+                except Exception as exc:  # noqa: BLE001 - una página rota no debe impedir reconstruir
+                    log_action("error_interno", type(page).__name__, f"handoff: {exc!r}", ok=False)
+                    continue
+                if state:
+                    states[key] = state
+        self._stop_pages(keep=set(states))
         self.current = None
         for child in list(self.root.winfo_children()):
             child.destroy()
         self._build_everything(first=False)
+        for key, state in states.items():
+            try:
+                self.page(key).succeed(old[key], state)
+            except Exception as exc:  # noqa: BLE001 - si una página no hereda, su análisis se detiene
+                log_action("error_interno", type(old[key]).__name__, f"adopt: {exc!r}", ok=False)
+                old[key].shutdown()
+        del old, states
+        gc.collect()   # lo que quedaba de la interfaz anterior se libera aquí, en el hilo de la interfaz
         self.show(keep or "summary")
 
-    def _stop_pages(self) -> None:
-        """Detiene lo que las páginas tengan en marcha y descarta sus resultados pendientes."""
-        for page in list(self.pages.values()):
+    def _stop_pages(self, keep: set[str] | frozenset[str] = frozenset()) -> None:
+        """Detiene lo que las páginas tengan en marcha y descarta sus resultados pendientes.
+        Las de keep solo se retiran: su trabajo sigue y lo heredará la página que las sustituya."""
+        for key, page in list(self.pages.items()):
             try:
-                page.shutdown()
+                if key in keep:
+                    page.retire()
+                else:
+                    page.shutdown()
             except Exception as exc:  # noqa: BLE001 - una página rota no debe impedir cerrar o reconstruir
                 log_action("error_interno", type(page).__name__, f"shutdown: {exc!r}", ok=False)
         self.bg.reset()
@@ -339,7 +365,7 @@ class App:
             return
         config.set_scale(new)
         log_action("tamano_ui", f"{new:.2f}")
-        self.rebuild()
+        self.rebuild(keep_work=True)
 
     def _build_pages(self) -> None:
         from .views.cleaner_view import CleanerView
