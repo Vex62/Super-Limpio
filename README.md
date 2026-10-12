@@ -2,20 +2,64 @@
 
 <img src="launcher/logo.png" alt="Logo de Super Limpio" width="160">
 
-Aplicación de escritorio para **Windows 10/11** y **Linux** que enseña de un vistazo qué ocupa espacio y memoria en tu equipo, y ayuda a limpiarlo de forma segura. Aspecto inspirado en CCleaner (barra lateral de navegación) y en el Explorador de archivos (árbol de carpetas con el **peso total de cada carpeta**).
+**Español** · [English](#what-is-super-limpio)
 
-Todo es **local**: la app no se conecta a Internet, no instala servicios, no se queda en segundo plano y no modifica el registro.
+## Qué es Super Limpio
 
-**¿Primera vez?** Lee [Antes de ejecutar](ANTES_DE_EJECUTAR.md) ([Before run](BEFORE_RUN.md), in English): qué necesita tu equipo en Windows y en Linux y cómo conseguirlo.
+Super Limpio es una aplicación de escritorio para **Windows** y **Linux** que enseña qué ocupa espacio y memoria en tu equipo y ayuda a liberarlo con seguridad.
+
+Nació de buscar, sin encontrarlo, un programa que hiciera de verdad lo que prometen los limpiadores de pago: muchos enseñan una cifra llamativa, reservan lo útil para quien se suscribe y no explican qué van a tocar. Super Limpio es la respuesta a eso.
+
+- **Ves cuánto pesa cada archivo y cada carpeta.** Un árbol como el del Explorador de archivos, con el peso total de cada carpeta, para encontrar de un vistazo qué está llenando el disco.
+- **Transparente.** Antes de cada acción enseña exactamente qué va a tocar, y nada se borra sin que lo confirmes. El código está a la vista en este repositorio.
+- **Sin suscripciones ni funciones bloqueadas.** Todo está disponible desde el primer momento.
+- **Windows y Linux.** La misma aplicación en los dos sistemas.
+- **Ligera.** No se instala: es una carpeta que se descomprime y se abre. No deja servicios ni nada en segundo plano.
+- **Segura.** Trabaja en local, sin conectarse a Internet y como usuario normal. Los paquetes van firmados y la aplicación comprueba su integridad al arrancar.
+
+### Dependencias
+
+| Sistema | Qué necesitas | Opcional |
+|---|---|---|
+| **Windows 10 u 11** (64 bits) | Nada: el zip del release trae todo, Python incluido | — |
+| **Linux** con escritorio gráfico | **Python 3.11 o posterior** con **tkinter** (`python3-tk`, `python3-tkinter` o `tk`, según la distribución) | `wmctrl`, para que el Modo eficiente sepa qué programas tienen ventana. OpenSSL (lo traen casi todas las distribuciones), para comprimir con contraseña |
+| Código fuente en Windows | `preparar_entorno.bat` descarga un Python portable (necesita Internet esa vez) | Compilador de C de Visual Studio, solo para generar `SuperLimpio.exe` |
+
+La aplicación no usa ningún paquete de terceros de Python: solo la biblioteca estándar. El paso a paso para cada sistema, con las órdenes de instalación por distribución, está en [Antes de ejecutar](ANTES_DE_EJECUTAR.md).
+
+## What is Super Limpio
+
+Super Limpio is a desktop application for **Windows** and **Linux** that shows what is taking up disk space and memory on your computer and helps you free it safely.
+
+It was born from looking for, and not finding, a program that actually does what paid cleaners promise: many of them show an eye-catching figure, keep the useful parts behind a subscription and never explain what they are about to touch. Super Limpio is the answer to that.
+
+- **See the size of every file and folder.** A tree like the one in the file explorer, with the total size of each folder, so you can spot at a glance what is filling the disk.
+- **Transparent.** Before every action it shows exactly what it is going to touch, and nothing is deleted without your confirmation. The code is in plain sight in this repository.
+- **No subscriptions, no locked features.** Everything is available from the first moment.
+- **Windows and Linux.** The same application on both systems.
+- **Lightweight.** Nothing to install: it is a folder you unpack and open. It leaves no services and nothing running in the background.
+- **Safe.** It works locally, with no Internet connection and as a regular user. The packages are signed and the application checks its own integrity on startup.
+
+### Dependencies
+
+| System | What you need | Optional |
+|---|---|---|
+| **Windows 10 or 11** (64-bit) | Nothing: the release zip includes everything, Python too | — |
+| **Linux** with a graphical desktop | **Python 3.11 or later** with **tkinter** (`python3-tk`, `python3-tkinter` or `tk`, depending on the distribution) | `wmctrl`, so that Efficient mode knows which programs have a window. OpenSSL (shipped by almost every distribution), to compress with a password |
+| Source code on Windows | `preparar_entorno.bat` downloads a portable Python (needs Internet that one time) | Visual Studio C compiler, only to build `SuperLimpio.exe` |
+
+The application uses no third-party Python packages: only the standard library. The step-by-step guide for each system, with the install commands per distribution, is in [Before run](BEFORE_RUN.md).
+
+The interface is available in English and Spanish. The rest of this document is in Spanish.
 
 ## Descargas
 
-Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.2**:
+Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.3**:
 
 | Sistema | Release | Archivo | Cómo se abre |
 |---|---|---|---|
-| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.2 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.2-windows) | `SuperLimpio-1.4.2-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
-| Linux | [Super Limpio 1.4.2 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.2-linux) | `SuperLimpio-1.4.2-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
+| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.3 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.3-windows) | `SuperLimpio-1.4.3-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
+| Linux | [Super Limpio 1.4.3 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.3-linux) | `SuperLimpio-1.4.3-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
 
 Los dos paquetes van **firmados**: llevan un manifiesto con la huella de cada archivo y la aplicación lo comprueba al arrancar. Si alguien ha modificado algo, se niega a continuar.
 
