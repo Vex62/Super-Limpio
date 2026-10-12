@@ -104,6 +104,9 @@ class DevDepsView(View):
     def pending(self) -> str:
         return i18n.t("app.pending.delete") if self._deleting else ""
 
+    def working(self) -> str:
+        return i18n.t("app.working.devdeps") if self.cancel_ev is not None else ""
+
     def handoff(self) -> dict[str, Any] | None:
         if not self.table.rows and self.cancel_ev is None:
             return None
@@ -114,8 +117,11 @@ class DevDepsView(View):
         self.path.set(state["path"])
         self.checked = state["checked"]
         self.table.set_rows(state["rows"])
-        self.info.configure(text=state["info"])
         self.cancel_ev = state["cancel_ev"]
+        if not state["translated"]:
+            self.info.configure(text=state["info"])
+        elif self.table.rows:   # en el idioma nuevo; si sigue buscando, el siguiente avance lo pone
+            self._update_info()
         if self.cancel_ev is not None:   # la búsqueda sigue en marcha
             self.go.configure(text=i18n.t("common.stop"))
 

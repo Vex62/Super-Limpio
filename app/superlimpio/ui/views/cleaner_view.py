@@ -105,7 +105,7 @@ class CleanerView(View):
 
         body.add(left, weight=0)
         body.add(right, weight=1)
-        self.persist_sash(body, "split", 330)
+        self.proportional_sash(body, "split", 0.3)
 
     def _on_left_resize(self, canvas: Any, win: Any, width: int) -> None:
         canvas.itemconfigure(win, width=width)
@@ -146,6 +146,9 @@ class CleanerView(View):
     def pending(self) -> str:
         return i18n.t("app.pending.clean") if self._cleaning else ""
 
+    def working(self) -> str:
+        return i18n.t("app.working.cleaner") if self._analyzing else ""
+
     def handoff(self) -> dict[str, Any] | None:
         if not self.estimates and not self._analyzing:
             return None
@@ -170,6 +173,16 @@ class CleanerView(View):
         self.pbar.configure(value=value)
         self.hero_big.configure(text=state["hero"][0])
         self.hero_txt.configure(text=state["hero"][1])
+        if state["translated"]:   # el texto guardado está en el idioma anterior
+            if self._analyzing:
+                self.hero_txt.configure(text=i18n.t("cleaner.analyzing"))
+            elif self._cleaned_rows:
+                failed = sum(r.failed for r in self._cleaned_rows.values())
+                self.hero_txt.configure(text=i18n.t("cleaner.done_partial", n=fmt_count(failed)) if failed
+                                        else i18n.t("cleaner.done"))
+            else:
+                files = sum(e.count for e in self.estimates.values())
+                self.hero_txt.configure(text=i18n.t("cleaner.analysis_done", files=fmt_count(files)))
         self.an_btn.state(["disabled"] if self._analyzing else ["!disabled"])   # si sigue, lo que falta llega aquí
         self.clean_btn.state(["!disabled"] if state["can_clean"] else ["disabled"])
 
@@ -181,6 +194,10 @@ class CleanerView(View):
         self.hero_txt.configure(text=f"{i18n.t('common.error')}: {exc}")
         self.status(f"{i18n.t('common.error')}: {exc}")
 
+    def _cat_name(self, cat: cleaner.Category) -> str:
+        """Nombre de la categoría en el idioma de ahora (un análisis puede venir del anterior)."""
+        return next((c.name for c in self.cats if c.id == cat.id), cat.name)
+
     def _add_estimate(self, est: cleaner.Estimate, i: int) -> None:
         self.estimates[est.category.id] = est
         note = est.note
@@ -189,7 +206,7 @@ class CleanerView(View):
         if not est.locations:
             note = i18n.t("cleaner.not_found")
         self.tree.insert("", "end", iid=est.category.id, values=(
-            est.category.name, fmt_size(est.size), fmt_count(est.count), note),
+            self._cat_name(est.category), fmt_size(est.size), fmt_count(est.count), note),
             tags=(theme.size_tag(est.size),))
         self.pbar.configure(value=i)
 
@@ -251,7 +268,7 @@ class CleanerView(View):
     def _cleaned(self, r: cleaner.CleanResult, i: int) -> None:
         self._cleaned_rows[r.category.id] = r
         if self.tree.exists(r.category.id):
-            self.tree.item(r.category.id, values=(r.category.name, fmt_size(r.freed), fmt_count(r.deleted),
+            self.tree.item(r.category.id, values=(self._cat_name(r.category), fmt_size(r.freed), fmt_count(r.deleted),
                                                   i18n.t("cleaner.cleaned", note=r.note)), tags=("done",))
         self.pbar.configure(value=i)
 

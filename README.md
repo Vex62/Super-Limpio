@@ -10,12 +10,12 @@ Todo es **local**: la app no se conecta a Internet, no instala servicios, no se 
 
 ## Descargas
 
-Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.1**:
+Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.2**:
 
 | Sistema | Release | Archivo | Cómo se abre |
 |---|---|---|---|
-| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.1 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.1-windows) | `SuperLimpio-1.4.1-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
-| Linux | [Super Limpio 1.4.1 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.1-linux) | `SuperLimpio-1.4.1-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
+| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.2 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.2-windows) | `SuperLimpio-1.4.2-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
+| Linux | [Super Limpio 1.4.2 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.2-linux) | `SuperLimpio-1.4.2-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
 
 Los dos paquetes van **firmados**: llevan un manifiesto con la huella de cada archivo y la aplicación lo comprueba al arrancar. Si alguien ha modificado algo, se niega a continuar.
 
@@ -193,7 +193,7 @@ El `.exe` es un **lanzador**: unas 150 líneas de C legible en `launcher\launche
 
 La tabla describe Windows. En Linux las secciones son las mismas con los equivalentes del sistema: ver [Linux](#linux).
 
-**Tamaño de la interfaz**: con el control «− 100 % +» de la barra lateral o con **Ctrl +**, **Ctrl −** y **Ctrl 0** (vuelve al 100 %). La ventana se adapta a la pantalla: si cambia la resolución conserva sus proporciones y, si se arrastra fuera, vuelve a un sitio donde se puede agarrar.
+**Tamaño de la interfaz**: con el control «− 100 % +» de la barra lateral o con **Ctrl +**, **Ctrl −** y **Ctrl 0** (vuelve al 100 %). Cambiar el tamaño o el idioma no interrumpe un análisis en marcha. La ventana se adapta a la pantalla: los paneles divididos conservan su proporción al redimensionarla, si cambia la resolución conserva sus proporciones y, si se arrastra fuera, vuelve a un sitio donde se puede agarrar.
 
 ## Seguridad
 

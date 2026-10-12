@@ -43,9 +43,14 @@ class View(ttk.Frame):
         una en marcha; cadena vacía si la vista se puede cerrar o reconstruir sin más."""
         return ""
 
+    def working(self) -> str:
+        """Nombre del análisis que esta vista tiene en marcha, o cadena vacía. Cortarlo no
+        deja nada a medias, pero se pierde: antes de salir se avisa."""
+        return ""
+
     def shutdown(self) -> None:
-        """La vista se va a destruir (cierre, cambio de idioma o de tamaño): se cancelan los
-        análisis en segundo plano para que no sigan trabajando para nadie."""
+        """La vista se va a destruir sin que otra la sustituya (cierre de la aplicación): se
+        cancelan los análisis en segundo plano para que no sigan trabajando para nadie."""
         self.retire()
         for name in ("cancel_ev", "_an_stop", "_del_cancel"):
             ev = getattr(self, name, None)
@@ -57,14 +62,15 @@ class View(ttk.Frame):
         self.on_hide()
         self._dead = True
 
-    # Al cambiar el tamaño de la interfaz todo se vuelve a construir, pero un análisis en
+    # Al cambiar el tamaño o el idioma todo se vuelve a construir, pero un análisis en
     # marcha (o ya terminado) no se pierde: la vista vieja entrega su estado a la nueva.
     def handoff(self) -> dict[str, Any] | None:
         """Lo que la vista quiere conservar al reconstruirse; None si no hay nada que guardar."""
         return None
 
     def adopt(self, state: dict[str, Any]) -> None:
-        """Recibe lo que entregó la vista a la que sustituye (ver handoff)."""
+        """Recibe lo que entregó la vista a la que sustituye (ver handoff). Si ha cambiado el
+        idioma, state["translated"] es cierto: los textos guardados ya no valen y se rehacen."""
 
     def succeed(self, old: View, state: dict[str, Any]) -> None:
         """Esta vista ocupa el sitio de old: recibe su estado y, desde ahora, lo que sus
@@ -114,21 +120,40 @@ class View(ttk.Frame):
         lbl.bind("<Configure>", lambda e: lbl.configure(wraplength=max(self.px(200), e.width - 4)))
         return lbl
 
-    def persist_sash(self, pw: ttk.PanedWindow, name: str, default_px: int) -> None:
-        """Recuerda y restaura la posición de un divisor arrastrable de esta vista."""
+    def proportional_sash(self, pw: ttk.PanedWindow, name: str, default: float, min_px: int = 110) -> None:
+        """El divisor de pw reparte el panel en proporción: al cambiar el tamaño de la ventana
+        (o la resolución) cada caja conserva su parte, y ninguna llega a tapar a la otra.
+        La proporción que deja el usuario al arrastrar se recuerda entre sesiones."""
         key = self.view_key or type(self).__name__
+        horizontal = str(pw.cget("orient")) == "horizontal"
+        ratio = [config.get_sash_ratio(key, name, default)]
 
-        def restore() -> None:
+        def total() -> int:
+            return pw.winfo_width() if horizontal else pw.winfo_height()
+
+        def target(size: int) -> int:
+            low = min(self.px(min_px), size // 3)   # lo mínimo que se le deja a cada caja
+            return max(low, min(size - low, round(ratio[0] * size)))
+
+        def place(_e: Any = None) -> None:
             try:
-                pw.sashpos(0, int(config.get_sash(key, name, self.px(default_px))))
+                size = total()
+                if size > 1 and pw.sashpos(0) != target(size):
+                    pw.sashpos(0, target(size))
             except tk.TclError:
-                pass
+                pass   # el panel aún no está en pantalla o ya no existe
 
-        def save(_e: Any = None) -> None:
+        def dragged(_e: Any = None) -> None:
             try:
-                config.set_sash(key, name, pw.sashpos(0))
+                size, pos = total(), pw.sashpos(0)
             except tk.TclError:
-                pass
+                return
+            if size <= 1 or pos == target(size):
+                return   # un clic sin arrastrar
+            ratio[0] = min(0.95, max(0.05, pos / size))
+            config.set_sash_ratio(key, name, ratio[0])
+            place()
 
-        pw.after(80, restore)
-        pw.bind("<ButtonRelease-1>", save, add="+")
+        # after_idle: Tk recoloca el divisor por su cuenta al redimensionar; se corrige después.
+        pw.bind("<Configure>", lambda e: pw.after_idle(place), add="+")
+        pw.bind("<ButtonRelease-1>", dragged, add="+")

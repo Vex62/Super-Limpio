@@ -1351,6 +1351,13 @@ CATALOG: dict[str, dict[str, str]] = {
     "app.pending.delete": {"en": "deleting files", "es": "borrado de archivos"},
     "app.pending.clean": {"en": "cleanup in progress", "es": "limpieza en curso"},
     "app.pending.optimize": {"en": "closing or slowing down programs", "es": "cierre o ralentización de programas"},
+    "app.working.disk": {"en": "disk analysis", "es": "análisis de disco"},
+    "app.working.programs": {"en": "measuring installed programs", "es": "medición de programas"},
+    "app.working.optimizer": {"en": "process analysis", "es": "análisis de procesos"},
+    "app.working.cleaner": {"en": "cleanup analysis", "es": "análisis de limpieza"},
+    "app.working.devdeps": {"en": "search for development libraries", "es": "búsqueda de librerías de desarrollo"},
+    "disk.busy": {"en": "An analysis is already running. Stop it before starting another one.",
+                  "es": "Ya hay un análisis en marcha. Detenlo antes de empezar otro."},
     "app.exit.busy_title": {"en": "Operation in progress", "es": "Operación en curso"},
     "app.exit.busy_body": {
         "en": "Super Limpio is still working:\n\n{what}\n\nIf you exit now it stops halfway: what is already "

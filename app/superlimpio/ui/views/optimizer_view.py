@@ -142,7 +142,7 @@ class OptimizerView(View):
 
         split.add(top, weight=1)
         split.add(bottom, weight=1)
-        self.persist_sash(split, "analysis", 250)
+        self.proportional_sash(split, "analysis", 0.45)
 
     def analyze(self) -> None:
         if self._an_stop is not None:
@@ -180,6 +180,9 @@ class OptimizerView(View):
     def _an_failed(self, _exc: BaseException) -> None:
         self._an_done(None)
 
+    def working(self) -> str:
+        return i18n.t("app.working.optimizer") if self._an_stop is not None else ""
+
     def handoff(self) -> dict[str, Any] | None:
         if self._report is None and self._an_stop is None:
             return None
@@ -190,13 +193,17 @@ class OptimizerView(View):
 
     def adopt(self, state: dict[str, Any]) -> None:
         self.an_secs.set(state["secs"])
-        if state["report"] is not None:
+        # Un informe ya terminado está escrito en el idioma en que se hizo: si ha cambiado,
+        # no se enseña a medias traducido. El análisis en marcha sí sigue (saldrá en el nuevo).
+        if state["report"] is not None and not state["translated"]:
             self._show_report(state["report"])
             self.prog_tbl.set_rows(state["rows"])   # sin los programas que ya se cerraron
-        self.an_lbl.configure(text=state["label"])
+            self.an_lbl.configure(text=state["label"])
         self._an_stop = state["stop"]
         if self._an_stop is not None:   # el análisis sigue en marcha: su avance llega ahora aquí
-            self._show_analyzing(*state["bar"], state["label"])
+            maximum, value = state["bar"]
+            label = i18n.t("opt.an.running", s=int(maximum) - 1) if state["translated"] else state["label"]
+            self._show_analyzing(maximum, value, label)
         if state["efficient"]:
             self.nb.select(self.tab_eff)
 

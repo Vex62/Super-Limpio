@@ -295,6 +295,16 @@ class ResilienceTests(unittest.TestCase):
         self.assertIsNone(self.config.get("language"))        # valores por defecto
         self.assertTrue(os.path.exists(self.cfg + ".corrupt"))
 
+    def test_sash_ratio_is_a_fraction(self):
+        self.assertEqual(self.config.get_sash_ratio("disk", "details", 0.76), 0.76)   # sin guardar: el de partida
+        self.config.set_sash_ratio("disk", "details", 0.4)
+        self.assertEqual(self.config.get_sash_ratio("disk", "details", 0.76), 0.4)
+        # Lo que guardaban las versiones anteriores eran píxeles: no valen como proporción.
+        self.config.set_sash("cleaner", "split", 330)
+        self.assertEqual(self.config.get_sash_ratio("cleaner", "split", 0.3), 0.3)
+        self.config.set("sashes", {"cleaner": "roto"})
+        self.assertEqual(self.config.get_sash_ratio("cleaner", "split", 0.3), 0.3)
+
     def test_recovery_flag_cycle(self):
         from superlimpio import recovery
         recovery.mark_started()

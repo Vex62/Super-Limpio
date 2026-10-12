@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 import traceback
 
@@ -38,6 +39,7 @@ from superlimpio.ui.app import App  # noqa: E402
 
 errors: list[str] = []
 start_scale = config.get_scale()
+start_language = config.get("language")
 config.set_scale(1.0)
 app = App()
 root = app.root
@@ -61,6 +63,17 @@ def shot(name: str) -> None:
     os.makedirs(SHOTS, exist_ok=True)
     pump(0.3)
     subprocess.run(["import", "-window", "root", os.path.join(SHOTS, name + ".png")], check=False, timeout=30)
+
+
+def set_language(name: str) -> None:
+    """Elige el idioma en el desplegable de la barra lateral, como haría el usuario."""
+    app.lang_var.set(name)
+    app._on_language()
+
+
+def sash_ratio(pw: object) -> float:
+    horizontal = str(pw.cget("orient")) == "horizontal"
+    return pw.sashpos(0) / (pw.winfo_width() if horizontal else pw.winfo_height())
 
 
 def check(label: str, condition: bool) -> None:
@@ -127,6 +140,12 @@ try:
         if disk.cancel_ev is None:
             break
     check("análisis de disco", disk.result is not None and disk.result.root.files == 6)
+    # Con un análisis en marcha, pedir otro (Intro, un disco del Resumen…) no lo cancela.
+    running = disk.cancel_ev = threading.Event()
+    disk.start_scan(os.path.dirname(work))
+    check("pedir otro análisis no cancela el que está en marcha",
+          disk.cancel_ev is running and not running.is_set() and disk.path_var.get() == work)
+    disk.cancel_ev = None
     top = disk.tree.get_children()
     if top:
         kids = disk.tree.get_children(top[0])
@@ -169,7 +188,16 @@ try:
     check("el resultado del disco se conserva", app.page("disk").result is not None
           and len(app.page("disk").tree.get_children()) == 1)
     app._set_zoom(1.0)
+    # Cambiar de idioma tampoco: el análisis sigue y su informe sale ya en el idioma nuevo.
+    set_language("English")
     opt = app.page("optimizer")
+    check("el análisis sigue tras cambiar el idioma",
+          i18n.current() == "en" and opt._an_stop is not None and not opt._an_stop.is_set())
+    check("el resultado del disco se conserva al cambiar el idioma", app.page("disk").result is not None)
+    pump(0.5)
+    set_language("Español")
+    opt = app.page("optimizer")
+    check("vuelta al español", i18n.current() == "es" and opt._an_stop is not None)
     pump(11.0)
     check("análisis de procesos", opt._report is not None and len(opt._report.programs) > 3)
     check("el análisis terminado deja los botones en reposo", opt._an_stop is None
@@ -202,6 +230,28 @@ try:
     print("  categorías:", {k: v.size for k, v in cleaner_page.estimates.items() if v.size})
     shot("08_limpieza")
 
+    # ---- Divisores: al cambiar el tamaño de la ventana cada caja conserva su proporción
+    body = next(w for w in cleaner_page.winfo_children() if w.winfo_class() == "TPanedwindow")
+    root.geometry("1000x620")
+    pump(0.6)
+    before = sash_ratio(body)
+    root.geometry("1400x800")
+    pump(0.6)
+    check("el divisor de Limpieza conserva la proporción", abs(sash_ratio(body) - before) < 0.02)
+    app.show("disk")
+    split = next(w for w in app.page("disk").winfo_children() if w.winfo_class() == "TPanedwindow")
+    pump(0.6)
+    before = sash_ratio(split)
+    root.geometry("1000x620")
+    pump(0.6)
+    check("el divisor del disco conserva la proporción", abs(sash_ratio(split) - before) < 0.03)
+    root.geometry("800x420")
+    pump(0.6)
+    height, pos = split.winfo_height(), split.sashpos(0)
+    check("en una ventana baja ninguna caja tapa a la otra", pos >= height // 4 and height - pos >= height // 4)
+    root.geometry("1280x800")
+    pump(0.4)
+
     # ---- Herramientas e Inicio: que se listen
     app.show("startup")
     pump(1.5)
@@ -218,6 +268,8 @@ try:
         pump(0.2)
     check("zoom máximo", abs(app.zoom - config.MAX_SCALE) < 1e-6)
     shot("11_zoom_maximo")
+    root.focus_force()   # el atajo llega a la ventana que tiene el foco
+    pump(0.2)
     root.event_generate("<Control-Key-0>")
     pump(0.5)
     check("Ctrl 0 vuelve al 100 %", abs(app.zoom - 1.0) < 1e-6)
@@ -236,6 +288,7 @@ try:
     check("el diálogo de confirmación se cancela", answer is False)
 finally:
     config.set_scale(start_scale)
+    config.set("language", start_language)
     try:
         app._shutdown()
     except Exception:  # noqa: BLE001

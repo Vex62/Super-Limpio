@@ -209,6 +209,25 @@ def get_sash(view: str, name: str, default: int | None = None) -> int | None:
         return default
 
 
+def get_sash_ratio(view: str, name: str, default: float) -> float:
+    """Posición de un divisor como fracción (0..1) del panel. Los valores antiguos, que eran
+    píxeles, no valen para otra ventana: se ignoran y se usa default."""
+    sashes = get("sashes", {}) or {}
+    try:
+        value = float(sashes.get(view, {}).get(name, default))
+    except (TypeError, ValueError, AttributeError):
+        return default
+    return value if 0.0 < value < 1.0 else default
+
+
+def set_sash_ratio(view: str, name: str, value: float) -> None:
+    sashes = dict(get("sashes", {}) or {})
+    view_map = dict(sashes.get(view, {}) or {})
+    view_map[name] = round(float(value), 4)
+    sashes[view] = view_map
+    set("sashes", sashes)
+
+
 def set_sash(view: str, name: str, value: int) -> None:
     sashes = dict(get("sashes", {}) or {})
     view_map = dict(sashes.get(view, {}) or {})

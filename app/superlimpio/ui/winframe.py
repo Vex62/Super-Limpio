@@ -49,10 +49,70 @@ def _colorref(hex_color: str) -> int:
     return r | (g << 8) | (b << 16)   # COLORREF = 0x00BBGGRR
 
 
-def apply(root: Any, caption: str, text: str, border: str) -> None:
-    """Pinta la barra de título (fondo/letras), el borde y redondea las esquinas."""
+_GCLP_HICONSM = -34
+_SM_CXSMICON, _SM_CYSMICON = 49, 50
+_SWP_FRAME = 0x0001 | 0x0002 | 0x0004 | 0x0010 | 0x0020   # sin mover, redimensionar ni activar: solo el marco
+_blank_icon: int | None = None
+
+
+def _hwnd(root: Any) -> int:
+    """La ventana con marco (la de Tk es hija suya)."""
+    from ctypes import wintypes
+    user32 = _user32()
+    user32.GetParent.restype = wintypes.HWND
+    user32.GetParent.argtypes = [wintypes.HWND]
+    child = root.winfo_id()
+    return int(user32.GetParent(child) or child)
+
+
+def hide_caption_icon(root: Any) -> None:
+    """Deja sin dibujo el icono de la barra de título: el logo ya está en la propia interfaz.
+
+    Windows pinta ahí el icono «pequeño» de la clase de ventana; se sustituye por uno
+    transparente. No se le da un icono propio a la ventana, porque entonces la barra de
+    tareas usaría ese (vacío): así sigue enseñando el del programa, como hasta ahora. La
+    clase es la de todas las ventanas de la aplicación, así que los diálogos tampoco lo
+    llevan. Se puede llamar las veces que haga falta: solo actúa si Tk ha repuesto el suyo."""
+    global _blank_icon
     if sys.platform != "win32":
         return
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        user32 = _user32()
+        if _blank_icon is None:
+            user32.GetSystemMetrics.restype = ctypes.c_int
+            user32.GetSystemMetrics.argtypes = [ctypes.c_int]
+            user32.CreateIcon.restype = wintypes.HICON
+            user32.CreateIcon.argtypes = [wintypes.HINSTANCE, ctypes.c_int, ctypes.c_int, ctypes.c_ubyte,
+                                          ctypes.c_ubyte, ctypes.c_char_p, ctypes.c_char_p]
+            w = user32.GetSystemMetrics(_SM_CXSMICON) or 16
+            h = user32.GetSystemMetrics(_SM_CYSMICON) or 16
+            size = ((w + 15) // 16) * 2 * h   # filas de 1 bit por píxel, alineadas a 16 bits
+            # Máscara toda a 1 (transparente) y color todo a 0: un icono que no pinta nada.
+            _blank_icon = int(user32.CreateIcon(None, w, h, 1, 1, b"\xff" * size, b"\x00" * size) or 0)
+        if not _blank_icon:
+            return
+        user32.GetClassLongPtrW.restype = ctypes.c_size_t
+        user32.GetClassLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
+        user32.SetClassLongPtrW.restype = ctypes.c_size_t
+        user32.SetClassLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_void_p]
+        user32.SetWindowPos.argtypes = [wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int, ctypes.c_int,
+                                        ctypes.c_int, wintypes.UINT]
+        hwnd = _hwnd(root)
+        if user32.GetClassLongPtrW(hwnd, _GCLP_HICONSM) != _blank_icon:
+            user32.SetClassLongPtrW(hwnd, _GCLP_HICONSM, _blank_icon)
+            user32.SetWindowPos(hwnd, None, 0, 0, 0, 0, _SWP_FRAME)   # que el marco se vuelva a pintar
+    except (OSError, AttributeError, ImportError, _tcl_error()):
+        pass   # sin esa llamada se queda el icono de siempre
+
+
+def apply(root: Any, caption: str, text: str, border: str) -> bool:
+    """Pinta la barra de título (fondo/letras), el borde y redondea las esquinas. Devuelve
+    si Windows ha aceptado los colores de la barra (Windows 11); en los anteriores, no."""
+    if sys.platform != "win32":
+        return False
     try:
         import ctypes
         from ctypes import wintypes
@@ -70,17 +130,18 @@ def apply(root: Any, caption: str, text: str, border: str) -> None:
         dwm.DwmSetWindowAttribute.argtypes = [wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD]
         handle = wintypes.HWND(hwnd)
 
-        def set_attr(attr: int, value: int) -> None:
+        def set_attr(attr: int, value: int) -> bool:
             val = ctypes.c_int(value)
-            dwm.DwmSetWindowAttribute(handle, attr, ctypes.byref(val), ctypes.sizeof(val))
+            return dwm.DwmSetWindowAttribute(handle, attr, ctypes.byref(val), ctypes.sizeof(val)) == 0
 
         set_attr(_DWMWA_USE_IMMERSIVE_DARK_MODE, 1)       # botones del sistema en claro
-        set_attr(_DWMWA_CAPTION_COLOR, _colorref(caption))
-        set_attr(_DWMWA_TEXT_COLOR, _colorref(text))
+        painted = set_attr(_DWMWA_CAPTION_COLOR, _colorref(caption))
+        painted = set_attr(_DWMWA_TEXT_COLOR, _colorref(text)) and painted
         set_attr(_DWMWA_BORDER_COLOR, _colorref(border))
         set_attr(_DWMWA_WINDOW_CORNER_PREFERENCE, _DWMWCP_ROUND)
+        return painted
     except (OSError, AttributeError, ImportError, _tcl_error()):
-        pass   # en Windows antiguo no existen esos atributos: se queda el marco por defecto
+        return False   # en Windows antiguo no existen esos atributos: se queda el marco por defecto
 
 
 # =========================================================================

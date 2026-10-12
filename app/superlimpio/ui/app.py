@@ -103,14 +103,21 @@ class App:
         self.style = theme.apply_style(self.root, self.fonts, self.sf)
         self.icons = make_icons(self.root, self.sf)
 
-        # El nombre y la versión ya salen en la barra lateral: el título se deja limpio.
         self.root.title(APP_NAME)
         try:
             self.root.iconphoto(True, self.icons["app"])
         except tk.TclError:
             pass
-        # Barra de título y borde con los colores de la marca (Windows 11).
-        winframe.apply(self.root, caption=theme.SIDEBAR_BG, text=theme.BLANCO, border=theme.ACCENT)
+        # Barra de título y borde con los colores de la marca (Windows 11). El logo y el nombre
+        # ya salen en la barra lateral, así que en la de título no se repiten: quedan solo los
+        # botones de minimizar, maximizar y cerrar. El nombre se escribe del color del fondo
+        # (la ventana lo conserva para la barra de tareas y Alt+Tab) y el icono de la barra
+        # se deja transparente. Donde Windows no deja elegir esos colores, el título va vacío.
+        if sys.platform == "win32":
+            if not winframe.apply(self.root, caption=theme.SIDEBAR_BG, text=theme.SIDEBAR_BG,
+                                  border=theme.ACCENT):
+                self.root.title("")
+            winframe.hide_caption_icon(self.root)
 
         if first:
             self._place_initial()
@@ -119,22 +126,21 @@ class App:
         self._build_shell()
         self._build_pages()
 
-    def rebuild(self, keep_work: bool = False) -> None:
-        """Reconstruye la interfaz tras cambiar el idioma o el tamaño. Con keep_work (cambio
-        de tamaño) los análisis en marcha siguen y sus resultados pasan a las páginas nuevas;
-        sin él (cambio de idioma, cuyos textos ya no valdrían) se cancelan."""
+    def rebuild(self, translated: bool = False) -> None:
+        """Reconstruye la interfaz tras cambiar el idioma o el tamaño. Los análisis en marcha
+        siguen y sus resultados pasan a las páginas nuevas; con translated (cambio de
+        idioma) las páginas rehacen los textos que tenían guardados."""
         keep = self.current
         old = dict(self.pages)
         states: dict[str, dict[str, Any]] = {}
-        if keep_work:
-            for key, page in old.items():
-                try:
-                    state = page.handoff()
-                except Exception as exc:  # noqa: BLE001 - una página rota no debe impedir reconstruir
-                    log_action("error_interno", type(page).__name__, f"handoff: {exc!r}", ok=False)
-                    continue
-                if state:
-                    states[key] = state
+        for key, page in old.items():
+            try:
+                state = page.handoff()
+            except Exception as exc:  # noqa: BLE001 - una página rota no debe impedir reconstruir
+                log_action("error_interno", type(page).__name__, f"handoff: {exc!r}", ok=False)
+                continue
+            if state:
+                states[key] = {**state, "translated": translated}
         self._stop_pages(keep=set(states))
         self.current = None
         for child in list(self.root.winfo_children()):
@@ -201,6 +207,8 @@ class App:
         proporción y el mismo sitio relativo. Si se arrastra hasta dejarla fuera de la
         pantalla, vuelve a un lugar donde se puede agarrar."""
         root = self.root
+        # Por si Tk ha rehecho el marco y, con él, su icono.
+        winframe.hide_caption_icon(root)
         if root.state() != "normal":
             self._monitor = None   # maximizada o minimizada: de eso se ocupa Windows
             return
@@ -356,7 +364,7 @@ class App:
                 config.set("language", code)
                 i18n.set_language(code)
                 log_action("idioma", code)
-                self.rebuild()
+                self.rebuild(translated=True)
                 return
 
     def _set_zoom(self, value: float) -> None:
@@ -365,7 +373,7 @@ class App:
             return
         config.set_scale(new)
         log_action("tamano_ui", f"{new:.2f}")
-        self.rebuild(keep_work=True)
+        self.rebuild()
 
     def _build_pages(self) -> None:
         from .views.cleaner_view import CleanerView
@@ -494,7 +502,8 @@ class App:
 
     def _confirm_exit(self) -> bool:
         from tkinter import messagebox
-        busy = self._pending()
+        # También se avisa de los análisis: cerrar no deja nada a medias, pero se pierden.
+        busy = self._pending() + [text for text in (page.working() for page in self.pages.values()) if text]
         if busy and not messagebox.askyesno(
                 i18n.t("app.exit.busy_title"), i18n.t("app.exit.busy_body", what="\n".join(f"• {b}" for b in busy)),
                 icon="warning", default="no", parent=self.root):

@@ -35,6 +35,7 @@ class DiskView(View):
         self.subtitle = i18n.t("disk.subtitle")
         self.result: scanner.ScanResult | None = None
         self.cancel_ev: threading.Event | None = None
+        self._scan_path = ""
         self.items: dict[str, tuple] = {}   # iid -> ("dir", node) | ("file", node, rec) | ("rest", node)
         self.node_iid: dict[int, str] = {}  # id(node) -> iid
         self._deleting = False
@@ -170,6 +171,7 @@ class DiskView(View):
 
         split.add(self.nb, weight=1)
         split.add(det, weight=0)
+        self.proportional_sash(split, "details", 0.76)
         # Al cambiar de pestaña, el panel de abajo pasa a hablar de la tabla que se ve.
         self.nb.bind("<<NotebookTabChanged>>", self._on_select)
 
@@ -194,10 +196,15 @@ class DiskView(View):
         if not path or not os.path.isdir(path):
             dialogs.error(self, i18n.t("disk.invalid_path"), i18n.t("disk.no_folder", path=path))
             return
-        if self.cancel_ev:
-            self.cancel_ev.set()
+        if self.cancel_ev is not None:
+            # Empezar otro análisis (Intro, «Analizar esta carpeta», un disco del Resumen) no
+            # cancela el que está en marcha: para eso está «Detener».
+            self.bell()
+            self.status(i18n.t("disk.busy"))
+            return
         self.path_var.set(path)
         self.cancel_ev = threading.Event()
+        self._scan_path = path
         self._show_scanning(i18n.t("disk.analyzing", path=path))
         self.status(i18n.t("disk.analyzing_status", path=path))
         ev = self.cancel_ev
@@ -224,21 +231,29 @@ class DiskView(View):
     def pending(self) -> str:
         return i18n.t("app.pending.delete") if self._deleting else ""
 
+    def working(self) -> str:
+        return i18n.t("app.working.disk") if self.cancel_ev is not None else ""
+
     def handoff(self) -> dict[str, Any] | None:
         if self.result is None and self.cancel_ev is None:
             return None
         return {"path": self.path_var.get(), "result": self.result, "cancel_ev": self.cancel_ev,
-                "progress": self.prog_lbl.cget("text"),
+                "scan_path": self._scan_path, "progress": self.prog_lbl.cget("text"),
                 "tab": self.nb.index(self.nb.select())}
 
     def adopt(self, state: dict[str, Any]) -> None:
         self.path_var.set(state["path"])
+        self._scan_path = state["scan_path"]
         if state["result"] is not None:
             self._show_result(state["result"])
             self.nb.select(state["tab"])
         self.cancel_ev = state["cancel_ev"]
         if self.cancel_ev is not None:   # el análisis sigue en marcha: su avance llega ahora aquí
-            self._show_scanning(state["progress"])
+            text = state["progress"]
+            if state["translated"]:   # hasta que llegue el siguiente avance, ya en el idioma nuevo
+                text = i18n.t("disk.stopping") if self.cancel_ev.is_set() else i18n.t(
+                    "disk.analyzing", path=self._scan_path)
+            self._show_scanning(text)
 
     def _cancel(self) -> None:
         if self._del_cancel is not None:   # hay un borrado en marcha: se detiene tras el elemento actual

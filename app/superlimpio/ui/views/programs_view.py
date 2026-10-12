@@ -103,7 +103,18 @@ class ProgramsView(View):
                         on_error=lambda e: dialogs.error(self, i18n.t("common.error"), str(e)))
 
     def _loaded(self, progs: list[programs.Program]) -> None:
-        rows = [{"p": p, "loc": p.location_guess} for p in progs]
+        # Actualizar la lista no tira lo ya medido ni deja sin destino una medición en marcha:
+        # cada programa que sigue instalado conserva su fila (y su tamaño real).
+        old = {r["p"].reg_key: r for r in self.table.rows}
+        rows = []
+        for p in progs:
+            row = old.get(p.reg_key)
+            if row is None:
+                row = {"p": p, "loc": p.location_guess}
+            else:
+                p.real_size = row["p"].real_size
+                row["p"], row["loc"] = p, p.location_guess
+            rows.append(row)
         self.table.set_rows(rows)
         self._update_summary()
         self.status(i18n.t("programs.found", n=len(rows)))
@@ -144,6 +155,10 @@ class ProgramsView(View):
             return None
 
         self.work(work, "_measure_end", "_measure_end", ev)
+
+    def working(self) -> str:
+        measuring = self.cancel_ev is not None and not self.cancel_ev.is_set()
+        return i18n.t("app.working.programs") if measuring else ""
 
     def handoff(self) -> dict[str, Any] | None:
         if not self.table.rows:
