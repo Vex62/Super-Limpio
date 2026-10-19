@@ -7,6 +7,8 @@ description = "Analizador y limpiador de espacio y memoria para Windows y Linux"
 requires-python = ">=3.11"
 dynamic = ["version"]
 dependencies = []   # ninguna: solo biblioteca estándar
+license = "CC-BY-NC-4.0"
+license-files = ["LICENSE"]
 
 [tool.ruff]
 target-version = "py311"

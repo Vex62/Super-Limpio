@@ -34,7 +34,7 @@ from superlimpio import __version__, integrity  # noqa: E402
 # Lo que forma la aplicación (rutas relativas a la raíz del proyecto)
 # La documentación y las herramientas de protección (PROTECCION.md, tools\firmar.py)
 # se quedan SOLO en el repositorio: nunca se distribuyen.
-INCLUDE = ["SuperLimpio.bat", "preparar_entorno.bat", "README.md", "SuperLimpio.code-workspace",
+INCLUDE = ["SuperLimpio.bat", "preparar_entorno.bat", "README.md", "LICENSE", "SuperLimpio.code-workspace",
            ".vscode", "app", "tests", "tools/crear_zip.py", "tools/LEEME.txt", "runtime/LEEME.txt"]
 
 # README mínimo para la distribución de producción: solo cómo abrirla, sin internos.
@@ -53,7 +53,7 @@ Settings are stored in superlimpio.config.json, next to the application.
 SKIP_DIRS = {"__pycache__", "_pycache", "_descargas", "logs", "dist", ".git", "VSCode"}
 SKIP_SUFFIXES = {".pyc", ".pyo", ".log"}
 # Lo justo para usar la aplicación con doble clic, sin nada de desarrollo
-PORTABLE = ["SuperLimpio.exe", "README.md", "app", "runtime/LEEME.txt", "runtime/python"]
+PORTABLE = ["SuperLimpio.exe", "README.md", "LICENSE", "app", "runtime/LEEME.txt", "runtime/python"]
 # Partes de la biblioteca de Python que la app no usa: no merece la pena compilarlas
 NO_COMPILE = r"[\\/](test|tests|idlelib|lib2to3|turtledemo|ensurepip|site-packages)[\\/]"
 
@@ -176,6 +176,7 @@ def build_protected(key_path: Path, use_pyarmor: bool) -> Path:
         shutil.copyfile(ROOT / "SuperLimpio.exe", stage / "SuperLimpio.exe")
         # README mínimo (no el del repo): la versión de producción no explica su interior
         (stage / "README.md").write_text(PROD_README.format(version=__version__), encoding="utf-8")
+        shutil.copyfile(ROOT / "LICENSE", stage / "LICENSE")
 
         firmar.firmar(stage, key_path)                # manifiesto firmado sobre lo que se publica
 

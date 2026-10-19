@@ -69,9 +69,10 @@ def _stage(dest: Path) -> None:
 
     shutil.copytree(ROOT / "app", dest / "app", ignore=ignore)
     shutil.copyfile(ROOT / "superlimpio.sh", dest / "superlimpio.sh")
+    shutil.copyfile(ROOT / "LICENSE", dest / "LICENSE")
     (dest / "LEEME.txt").write_text(LEEME.format(version=__version__), encoding="utf-8", newline="\n")
     for path in dest.rglob("*"):
-        if path.is_file() and path.suffix.lower() in TEXT_SUFFIXES:
+        if path.is_file() and (path.suffix.lower() in TEXT_SUFFIXES or path.name == "LICENSE"):
             data = path.read_bytes()
             fixed = data.replace(b"\r\n", b"\n")
             if fixed != data:

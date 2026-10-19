@@ -38,7 +38,7 @@ DEFAULT_KEY = Path(os.path.expanduser("~")) / ".superlimpio" / "clave_firma.hex"
 # incluye: sus binarios ya están firmados por la Python Software Foundation / Microsoft,
 # y hashearlos todos ralentizaría el arranque. Se protege lo que es propio de la app.
 SIGNED_SUBDIRS = ("app",)
-SIGNED_ROOT_FILES = ("SuperLimpio.exe", "SuperLimpio.bat", "superlimpio.sh", "README.md", "LEEME.txt")
+SIGNED_ROOT_FILES = ("SuperLimpio.exe", "SuperLimpio.bat", "superlimpio.sh", "README.md", "LEEME.txt", "LICENSE")
 EXCLUDE_NAMES = {"manifest.json", "manifest.sig", "superlimpio.config.json"}
 EXCLUDE_SUFFIXES = {".log"}
 

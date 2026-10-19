@@ -54,12 +54,12 @@ The interface is available in English and Spanish. The rest of this document is 
 
 ## Descargas
 
-Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.3**:
+Cada versión se publica dos veces en [Releases](https://github.com/Vex62/Super-Limpio/releases), una por sistema. La actual es la **1.4.4**:
 
 | Sistema | Release | Archivo | Cómo se abre |
 |---|---|---|---|
-| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.3 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.3-windows) | `SuperLimpio-1.4.3-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
-| Linux | [Super Limpio 1.4.3 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.3-linux) | `SuperLimpio-1.4.3-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
+| Windows 10 y 11 (64 bits) | [Super Limpio 1.4.4 para Windows](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.4-windows) | `SuperLimpio-1.4.4-protegido.zip` (unos 22 MB, con Python incluido) | [Windows, opción A](#opción-a-zip-del-release-lo-más-fácil) |
+| Linux | [Super Limpio 1.4.4 para Linux](https://github.com/Vex62/Super-Limpio/releases/tag/v1.4.4-linux) | `SuperLimpio-1.4.4-linux.tar.gz` (unos 220 KB, usa el Python del sistema) | [Linux](#linux) |
 
 Los dos paquetes van **firmados**: llevan un manifiesto con la huella de cada archivo y la aplicación lo comprueba al arrancar. Si alguien ha modificado algo, se niega a continuar.
 
@@ -350,3 +350,11 @@ Solo usa la biblioteca estándar de Python: no hay que instalar paquetes con pip
 - **Linux**: probado solo en Ubuntu 22.04 y 24.04, y de forma automática (sin un escritorio real). En otras distribuciones puede haber rutas o herramientas que no se reconozcan.
 - **Linux**: el Modo eficiente necesita `wmctrl` para saber qué programas tienen ventana, y bajo Wayland solo ve las de XWayland. Ralentizar un programa no se puede deshacer sin ser administrador, así que no se propone por defecto.
 - **Linux**: no hay auxiliar elevado. Lo que pertenece a otros usuarios o al sistema se muestra como «sin acceso», y lo que necesita privilegios se hace en una terminal con `sudo`, a la vista.
+
+## Licencia · License
+
+Super Limpio se distribuye bajo la licencia [Creative Commons Reconocimiento-NoComercial 4.0 Internacional (CC BY-NC 4.0)](LICENSE). Es gratis y puedes usarlo, copiarlo, modificarlo y compartirlo **sin fines comerciales**, siempre que **menciones al autor** («Super Limpio, de Vex62»), enlaces a este repositorio e indiques si has hecho cambios. Cualquier uso comercial necesita permiso expreso del autor.
+
+Super Limpio is licensed under [Creative Commons Attribution-NonCommercial 4.0 International (CC BY-NC 4.0)](LICENSE). It is free to use, copy, modify and share **for non-commercial purposes**, as long as you **credit the author** ("Super Limpio, by Vex62"), link to this repository and indicate whether you made changes. Any commercial use requires the author's express permission.
+
+Los componentes de terceros (por ejemplo, el Python portable incluido en el zip de Windows) conservan sus propias licencias.
